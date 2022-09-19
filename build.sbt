@@ -20,10 +20,10 @@ ThisBuild / githubWorkflowBuildPreamble +=
 val fs2Version = "3.3.0"
 val munitCEVersion = "2.0.0-M3"
 
-nativeConfig ~= { c =>
+ThisBuild / nativeConfig ~= { c =>
   c.withLinkingOptions(c.linkingOptions :+ "-L/home/linuxbrew/.linuxbrew/lib")
 }
-envVars ++= Map("LD_LIBRARY_PATH" -> "/home/linuxbrew/.linuxbrew/lib")
+ThisBuild / envVars ++= Map("LD_LIBRARY_PATH" -> "/home/linuxbrew/.linuxbrew/lib")
 
 lazy val root = tlCrossRootProject.aggregate(uring)
 
