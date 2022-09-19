@@ -18,22 +18,115 @@ package fs2.io.uring.unsafe
 
 import cats.effect.unsafe.PollingExecutorScheduler
 
-import scala.concurrent.duration.Duration
+import java.util.Collections
+import java.util.IdentityHashMap
+import java.util.Set
+import scala.concurrent.duration._
+import scala.scalanative.annotation.alwaysinline
+import scala.scalanative.runtime._
+import scala.scalanative.unsafe._
+import scala.scalanative.unsigned._
+
+import uring._
+import uringOps._
 
 private[uring] final class UringExecutorScheduler(
+    ring: Ptr[io_uring],
     pollEvery: Int,
     maxEvents: Int
 ) extends PollingExecutorScheduler(pollEvery) {
 
+  private[this] var pendingSubmissions: Boolean = false
+  private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
+    Collections.newSetFromMap(new IdentityHashMap)
+
   def poll(timeout: Duration): Boolean = {
-    val _ = maxEvents
-    ???
+
+    val timeoutIsZero = timeout == Duration.Zero
+    val timeoutIsInfinite = timeout == Duration.Inf
+    val noCallbacks = callbacks.isEmpty()
+
+    if ((timeoutIsInfinite || timeoutIsZero) && noCallbacks)
+      false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
+    else if (timeoutIsZero) {
+      if (pendingSubmissions) io_uring_submit(ring)
+      batchProcess(maxEvents)
+    } else {
+
+      val timeoutSpec =
+        if (timeoutIsInfinite) {
+          if (pendingSubmissions) io_uring_submit(ring)
+          null
+        } else {
+          val ts = stackalloc[__kernel_timespec]()
+          val sec = timeout.toSeconds
+          ts.tv_sec = sec
+          ts.tv_nsec = (timeout - sec.seconds).toNanos
+          ts
+        }
+
+      val cqePtr = stackalloc[Ptr[io_uring_cqe]]()
+      val rtn = io_uring_wait_cqe_timeout(ring, cqePtr, timeoutSpec)
+      if (rtn != 0)
+        throw new RuntimeException(s"io_uring_wait_cqe_timeout: $rtn")
+
+      val cqe = !cqePtr
+      processCqe(cqe)
+      io_uring_cqe_seen(ring, cqe)
+
+      batchProcess(maxEvents - 1)
+    }
+
+    pendingSubmissions = false
+
+    !callbacks.isEmpty()
   }
+
+  private def batchProcess(count: Int): Unit = {
+    var cqes = stackalloc[Ptr[io_uring_cqe]](count.toLong)
+    val filledCount = io_uring_peek_batch_cqe(ring, cqes, maxEvents.toUInt).toInt
+
+    var i = 0
+    while (i < filledCount) {
+      processCqe(!cqes)
+      i += 1
+      cqes += 1
+    }
+
+    io_uring_cq_advance(ring, filledCount.toUInt)
+  }
+
+  private def processCqe(cqe: Ptr[io_uring_cqe]): Unit = {
+    val cb = fromPtr(io_uring_cqe_get_data(cqe))
+    cb(Right(cqe.res))
+    callbacks.remove(cb)
+    ()
+  }
+
+  // @alwaysinline private def toPtr(cb: Either[Throwable, Int] => Unit): Ptr[Byte] =
+  //   fromRawPtr(Intrinsics.castObjectToRawPtr(cb))
+
+  @alwaysinline private def fromPtr[A](ptr: Ptr[Byte]): Either[Throwable, Int] => Unit =
+    Intrinsics.castRawPtrToObject(toRawPtr(ptr)).asInstanceOf[Either[Throwable, Int] => Unit]
 }
 
 private[uring] object UringExecutorScheduler {
 
-  def apply(pollEvery: Int, maxEvents: Int): (UringExecutorScheduler, () => Unit) =
-    ???
+  def apply(pollEvery: Int, maxEvents: Int): (UringExecutorScheduler, () => Unit) = {
+    implicit val zone = Zone.open()
+    val ring = alloc[io_uring]()
+
+    // the submission queue size need not exceed pollEvery
+    // every submission is accompanied by async suspension,
+    // and at most pollEvery suspensions can happen per iteration
+    io_uring_queue_init(pollEvery.toUInt, ring, 0.toUInt)
+
+    val cleanup = () => {
+      io_uring_queue_exit(ring)
+      zone.close()
+    }
+
+    (new UringExecutorScheduler(ring, pollEvery, maxEvents), cleanup)
+  }
 
 }
