@@ -8,6 +8,7 @@ ThisBuild / tlSonatypeUseLegacyHost := false
 
 ThisBuild / crossScalaVersions := Seq("3.1.3", "2.13.8")
 
+ThisBuild / githubWorkflowBuildMatrixFailFast := Some(false)
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 ThisBuild / githubWorkflowOSes := Seq("ubuntu-20.04", "ubuntu-22.04")
 
