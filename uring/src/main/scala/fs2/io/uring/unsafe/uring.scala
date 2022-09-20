@@ -19,6 +19,7 @@ package fs2.io.uring.unsafe
 import scala.annotation.nowarn
 import scala.scalanative.libc.stddef._
 import scala.scalanative.unsafe._
+import scala.scalanative.unsigned._
 
 @link("uring")
 @extern
@@ -77,14 +78,13 @@ private[unsafe] object uring {
       ts: Ptr[__kernel_timespec]
   ): CInt = extern
 
-  def io_uring_cqe_seen(ring: Ptr[io_uring], cqe: Ptr[io_uring_cqe]): Unit = extern
-
   def io_uring_peek_batch_cqe(
       ring: Ptr[io_uring],
       cqes: Ptr[Ptr[io_uring_cqe]],
       count: CUnsignedInt
   ): CUnsignedInt = extern
 
+  @name("fs2_io_uring_cq_advance")
   def io_uring_cq_advance(ring: Ptr[io_uring], nr: CUnsignedInt): Unit = extern
 
   def io_uring_cqe_get_data(cqe: Ptr[io_uring_cqe]): Ptr[Byte] = extern
