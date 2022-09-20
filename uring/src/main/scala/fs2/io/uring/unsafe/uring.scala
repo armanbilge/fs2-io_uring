@@ -20,6 +20,7 @@ import scala.annotation.nowarn
 import scala.scalanative.libc.stddef._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
+import scala.scalanative.runtime.Intrinsics._
 
 @link("uring")
 @extern
@@ -87,13 +88,17 @@ private[unsafe] object uring {
   @name("fs2_io_uring_cq_advance")
   def io_uring_cq_advance(ring: Ptr[io_uring], nr: CUnsignedInt): Unit = extern
 
-  def io_uring_cqe_get_data(cqe: Ptr[io_uring_cqe]): Ptr[Byte] = extern
-
 }
 
 private[unsafe] object uringOps {
 
   import uring._
+
+  def io_uring_cqe_set_data[A <: AnyRef](cqe: Ptr[io_uring_cqe], data: A): Unit =
+    cqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
+
+  def io_uring_cqe_get_data[A <: AnyRef](cqe: Ptr[io_uring_cqe]): A =
+    castRawPtrToObject(castLongToRawPtr(cqe.user_data.toLong)).asInstanceOf[A]
 
   implicit final class io_uring_cqeOps(val io_uring_cqe: Ptr[io_uring_cqe]) extends AnyVal {
     def user_data: __u64 = io_uring_cqe._1

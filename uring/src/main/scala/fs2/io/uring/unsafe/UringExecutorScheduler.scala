@@ -22,8 +22,6 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Set
 import scala.concurrent.duration._
-import scala.scalanative.annotation.alwaysinline
-import scala.scalanative.runtime._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -78,7 +76,7 @@ private[uring] final class UringExecutorScheduler(
       while (i < filledCount) {
         val cqe = !cqes
 
-        val cb = fromPtr(io_uring_cqe_get_data(cqe))
+        val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
         cb(Right(cqe.res))
         callbacks.remove(cb)
 
@@ -94,11 +92,6 @@ private[uring] final class UringExecutorScheduler(
     }
   }
 
-  // @alwaysinline private def toPtr(cb: Either[Throwable, Int] => Unit): Ptr[Byte] =
-  //   fromRawPtr(Intrinsics.castObjectToRawPtr(cb))
-
-  @alwaysinline private def fromPtr[A](ptr: Ptr[Byte]): Either[Throwable, Int] => Unit =
-    Intrinsics.castRawPtrToObject(toRawPtr(ptr)).asInstanceOf[Either[Throwable, Int] => Unit]
 }
 
 private[uring] object UringExecutorScheduler {
