@@ -65,9 +65,7 @@ private[uring] final class UringExecutorScheduler(
           }
 
         val cqe = stackalloc[Ptr[io_uring_cqe]]()
-        val rtn = io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
-        if (rtn != 0)
-          throw new RuntimeException(s"io_uring_wait_cqe_timeout: $rtn")
+        io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
       }
 
       var cqes = stackalloc[Ptr[io_uring_cqe]](maxEvents.toLong)
