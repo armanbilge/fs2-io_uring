@@ -48,59 +48,50 @@ private[uring] final class UringExecutorScheduler(
 
     if ((timeoutIsInfinite || timeoutIsZero) && noCallbacks)
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
-    else if (timeoutIsZero) {
-      if (pendingSubmissions) io_uring_submit(ring)
-      batchProcess(maxEvents)
-    } else {
+    else {
 
-      val timeoutSpec =
-        if (timeoutIsInfinite) {
-          if (pendingSubmissions) io_uring_submit(ring)
-          null
-        } else {
-          val ts = stackalloc[__kernel_timespec]()
-          val sec = timeout.toSeconds
-          ts.tv_sec = sec
-          ts.tv_nsec = (timeout - sec.seconds).toNanos
-          ts
-        }
+      if (timeoutIsZero) {
+        if (pendingSubmissions) io_uring_submit(ring)
+      } else {
 
-      val cqePtr = stackalloc[Ptr[io_uring_cqe]]()
-      val rtn = io_uring_wait_cqe_timeout(ring, cqePtr, timeoutSpec)
-      if (rtn != 0)
-        throw new RuntimeException(s"io_uring_wait_cqe_timeout: $rtn")
+        val timeoutSpec =
+          if (timeoutIsInfinite) {
+            if (pendingSubmissions) io_uring_submit(ring)
+            null
+          } else {
+            val ts = stackalloc[__kernel_timespec]()
+            val sec = timeout.toSeconds
+            ts.tv_sec = sec
+            ts.tv_nsec = (timeout - sec.seconds).toNanos
+            ts
+          }
 
-      val cqe = !cqePtr
-      processCqe(cqe)
-      io_uring_cqe_seen(ring, cqe)
+        val rtn = io_uring_wait_cqe_timeout(ring, null, timeoutSpec)
+        if (rtn != 0)
+          throw new RuntimeException(s"io_uring_wait_cqe_timeout: $rtn")
+      }
 
-      batchProcess(maxEvents - 1)
+      var cqes = stackalloc[Ptr[io_uring_cqe]](maxEvents.toLong)
+      val filledCount = io_uring_peek_batch_cqe(ring, cqes, maxEvents.toUInt).toInt
+
+      var i = 0
+      while (i < filledCount) {
+        val cqe = !cqes
+
+        val cb = fromPtr(io_uring_cqe_get_data(cqe))
+        cb(Right(cqe.res))
+        callbacks.remove(cb)
+
+        i += 1
+        cqes += 1
+      }
+
+      io_uring_cq_advance(ring, filledCount.toUInt)
+
+      pendingSubmissions = false
+
+      !callbacks.isEmpty()
     }
-
-    pendingSubmissions = false
-
-    !callbacks.isEmpty()
-  }
-
-  private def batchProcess(count: Int): Unit = {
-    var cqes = stackalloc[Ptr[io_uring_cqe]](count.toLong)
-    val filledCount = io_uring_peek_batch_cqe(ring, cqes, maxEvents.toUInt).toInt
-
-    var i = 0
-    while (i < filledCount) {
-      processCqe(!cqes)
-      i += 1
-      cqes += 1
-    }
-
-    io_uring_cq_advance(ring, filledCount.toUInt)
-  }
-
-  private def processCqe(cqe: Ptr[io_uring_cqe]): Unit = {
-    val cb = fromPtr(io_uring_cqe_get_data(cqe))
-    cb(Right(cqe.res))
-    callbacks.remove(cb)
-    ()
   }
 
   // @alwaysinline private def toPtr(cb: Either[Throwable, Int] => Unit): Ptr[Byte] =
