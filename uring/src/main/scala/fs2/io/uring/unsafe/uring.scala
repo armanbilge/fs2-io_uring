@@ -18,6 +18,7 @@ package fs2.io.uring.unsafe
 
 import scala.annotation.nowarn
 import scala.scalanative.libc.stddef._
+import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 import scala.scalanative.runtime.Intrinsics._
@@ -71,6 +72,9 @@ private[unsafe] object uring {
 
   def io_uring_queue_exit(ring: Ptr[io_uring]): Unit = extern
 
+  @name("fs2_io_uring_get_sqe")
+  def io_uring_get_sqe(ring: Ptr[io_uring]): Ptr[io_uring_sqe] = extern
+
   def io_uring_submit(ring: Ptr[io_uring]): CInt = extern
 
   def io_uring_wait_cqe_timeout(
@@ -87,6 +91,59 @@ private[unsafe] object uring {
 
   @name("fs2_io_uring_cq_advance")
   def io_uring_cq_advance(ring: Ptr[io_uring], nr: CUnsignedInt): Unit = extern
+
+  @name("fs2_io_uring_prep_accept")
+  def io_uring_prep_accept(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      addr: Ptr[sockaddr],
+      addrlen: Ptr[socklen_t],
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_cancel")
+  def io_uring_prep_cancel(sqe: Ptr[io_uring_sqe], user_data: Ptr[Byte], flags: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_close")
+  def io_uring_prep_close(sqe: Ptr[io_uring_sqe], fd: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_connect")
+  def io_uring_prep_connect(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      addr: Ptr[sockaddr],
+      addrlen: socklen_t
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_recv")
+  def io_uring_prep_recv(
+      sqe: Ptr[io_uring_sqe],
+      sockfd: CInt,
+      buf: Ptr[Byte],
+      len: size_t,
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_send")
+  def io_uring_prep_send(
+      sqe: Ptr[io_uring_sqe],
+      sockfd: CInt,
+      buf: Ptr[Byte],
+      len: size_t,
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_shutdown")
+  def io_uring_prep_shutdown(sqe: Ptr[io_uring_sqe], fd: CInt, how: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_socket")
+  def io_uring_prep_socket(
+      sqe: Ptr[io_uring_sqe],
+      domain: CInt,
+      `type`: CInt,
+      protocol: CInt,
+      flags: CUnsignedInt
+  ): Unit = extern
 
 }
 
