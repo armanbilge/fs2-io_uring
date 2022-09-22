@@ -24,7 +24,6 @@ import scala.scalanative.runtime.Intrinsics._
 
 @link("uring")
 @extern
-@nowarn
 private[unsafe] object uring {
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
