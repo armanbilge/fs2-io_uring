@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04, ubuntu-22.04]
-        scala: [3.1.3, 2.13.8]
+        scala: [3.1.3, 2.13.9]
         java: [temurin@17]
         project: [rootNative]
     runs-on: ${{ matrix.os }}
@@ -115,7 +115,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04]
-        scala: [2.13.8]
+        scala: [2.13.9]
         java: [temurin@17]
     runs-on: ${{ matrix.os }}
     steps:
@@ -162,12 +162,12 @@ jobs:
           tar xf targets.tar
           rm targets.tar
 
-      - name: Download target directories (2.13.8, rootNative)
+      - name: Download target directories (2.13.9, rootNative)
         uses: actions/download-artifact@v2
         with:
-          name: target-${{ matrix.os }}-${{ matrix.java }}-2.13.8-rootNative
+          name: target-${{ matrix.os }}-${{ matrix.java }}-2.13.9-rootNative
 
-      - name: Inflate target directories (2.13.8, rootNative)
+      - name: Inflate target directories (2.13.9, rootNative)
         run: |
           tar xf targets.tar
           rm targets.tar
