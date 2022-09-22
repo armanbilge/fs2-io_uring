@@ -101,8 +101,8 @@ private[uring] object uring {
       flags: CInt
   ): Unit = extern
 
-  @name("fs2_io_uring_prep_cancel")
-  def io_uring_prep_cancel(sqe: Ptr[io_uring_sqe], user_data: Ptr[Byte], flags: CInt): Unit = extern
+  @name("fs2_io_uring_prep_cancel64")
+  def io_uring_prep_cancel64(sqe: Ptr[io_uring_sqe], user_data: __u64, flags: CInt): Unit = extern
 
   @name("fs2_io_uring_prep_close")
   def io_uring_prep_close(sqe: Ptr[io_uring_sqe], fd: CInt): Unit = extern

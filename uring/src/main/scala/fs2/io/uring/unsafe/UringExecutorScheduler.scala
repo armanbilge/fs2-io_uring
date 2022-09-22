@@ -18,9 +18,6 @@ package fs2.io.uring.unsafe
 
 import cats.effect.unsafe.PollingExecutorScheduler
 
-import java.util.Collections
-import java.util.IdentityHashMap
-import java.util.Set
 import scala.concurrent.duration._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
@@ -35,18 +32,20 @@ private[uring] final class UringExecutorScheduler(
 ) extends PollingExecutorScheduler(pollEvery) {
 
   private[this] var pendingSubmissions: Boolean = false
-  private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
-    Collections.newSetFromMap(new IdentityHashMap)
+  private[this] var outstandingOps: Long = 0
 
-  def getSqe(): Ptr[io_uring_sqe] = io_uring_get_sqe(ring)
+  def getSqe(): Ptr[io_uring_sqe] = {
+    pendingSubmissions = true
+    outstandingOps += 1
+    io_uring_get_sqe(ring)
+  }
 
   def poll(timeout: Duration): Boolean = {
 
     val timeoutIsZero = timeout == Duration.Zero
     val timeoutIsInfinite = timeout == Duration.Inf
-    val noCallbacks = callbacks.isEmpty()
 
-    if ((timeoutIsInfinite || timeoutIsZero) && noCallbacks)
+    if ((timeoutIsInfinite || timeoutIsZero) && outstandingOps == 0)
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
     else {
 
@@ -79,17 +78,17 @@ private[uring] final class UringExecutorScheduler(
 
         val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
         cb(Right(cqe.res))
-        callbacks.remove(cb)
 
         i += 1
         cqes += 1
       }
 
       io_uring_cq_advance(ring, filledCount.toUInt)
+      outstandingOps -= filledCount
 
       pendingSubmissions = false
 
-      !callbacks.isEmpty()
+      outstandingOps > 0
     }
   }
 

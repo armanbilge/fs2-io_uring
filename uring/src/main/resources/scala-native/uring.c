@@ -14,9 +14,9 @@ void fs2_io_uring_prep_accept(struct io_uring_sqe *sqe, int fd,
   io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
 }
 
-void fs2_io_uring_prep_cancel(struct io_uring_sqe *sqe, void *user_data,
+void fs2_io_uring_prep_cancel64(struct io_uring_sqe *sqe, __u64 user_data,
                               int flags) {
-  io_uring_prep_cancel(sqe, user_data, flags);
+  io_uring_prep_cancel64(sqe, user_data, flags);
 }
 
 void fs2_io_uring_prep_close(struct io_uring_sqe *sqe, int fd) {
