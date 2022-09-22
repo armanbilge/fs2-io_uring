@@ -38,6 +38,8 @@ private[uring] final class UringExecutorScheduler(
   private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
     Collections.newSetFromMap(new IdentityHashMap)
 
+  def getSqe(): Ptr[io_uring_sqe] = io_uring_get_sqe(ring)
+
   def poll(timeout: Duration): Boolean = {
 
     val timeoutIsZero = timeout == Duration.Zero

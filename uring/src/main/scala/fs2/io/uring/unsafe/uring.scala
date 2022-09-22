@@ -26,7 +26,7 @@ import scala.scalanative.runtime.Intrinsics._
 @link("uring")
 @extern
 @nowarn
-private[unsafe] object uring {
+private[uring] object uring {
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
   type __s32 = CInt
@@ -147,15 +147,32 @@ private[unsafe] object uring {
 
 }
 
-private[unsafe] object uringOps {
+private[uring] object uringOps {
 
   import uring._
 
-  def io_uring_cqe_set_data[A <: AnyRef](cqe: Ptr[io_uring_cqe], data: A): Unit =
-    cqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
+  def io_uring_sqe_set_data[A <: AnyRef](sqe: Ptr[io_uring_sqe], data: A): Unit =
+    sqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
 
   def io_uring_cqe_get_data[A <: AnyRef](cqe: Ptr[io_uring_cqe]): A =
     castRawPtrToObject(castLongToRawPtr(cqe.user_data.toLong)).asInstanceOf[A]
+
+  implicit final class io_uring_sqeOps(val io_uring_sqe: Ptr[io_uring_sqe]) extends AnyVal {
+    def opcode: __u8 = io_uring_sqe._1
+    def opcode_=(opcode: __u8): Unit = !io_uring_sqe.at1 = opcode
+    def flags: __u8 = io_uring_sqe._2
+    def flags_=(flags: __u8): Unit = !io_uring_sqe.at2 = flags
+    def ioprio: __u16 = io_uring_sqe._3
+    def ioprio_=(ioprio: __u16): Unit = !io_uring_sqe.at3 = ioprio
+    def fd: __s32 = io_uring_sqe._4
+    def fd_=(fd: __s32): Unit = !io_uring_sqe.at4 = fd
+    def len: __u32 = io_uring_sqe._5
+    def len_=(len: __u32): Unit = !io_uring_sqe.at5 = len
+    def user_data: __u64 = io_uring_sqe._6
+    def user_data_=(user_data: __u64): Unit = !io_uring_sqe.at6 = user_data
+    def personality: __u16 = io_uring_sqe._7
+    def personality_=(personality: __u16): Unit = !io_uring_sqe.at7 = personality
+  }
 
   implicit final class io_uring_cqeOps(val io_uring_cqe: Ptr[io_uring_cqe]) extends AnyVal {
     def user_data: __u64 = io_uring_cqe._1

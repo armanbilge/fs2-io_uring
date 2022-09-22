@@ -14,17 +14,24 @@
  * limitations under the License.
  */
 
-package fs2.io.uring.unsafe
+package fs2.io.uring
 
-import scala.scalanative.unsafe._
-import scala.scalanative.runtime._
+import cats.effect.kernel.Async
+import fs2.io.uring.unsafe.UringExecutorScheduler
+import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 
-object util {
+import scala.scalanative.unsafe.Ptr
 
-  def toPtr(bytes: Array[Byte]): Ptr[Byte] =
-    bytes.asInstanceOf[ByteArray].at(0)
+private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
 
-  def toPtr(a: AnyRef): Ptr[Byte] =
-    fromRawPtr(Intrinsics.castObjectToRawPtr(a))
+  def apply(prep: Ptr[io_uring_sqe] => Unit): F[Int] = F.async[Int] { cb =>
+    F.delay {
+      val sqe = ring.getSqe()
+      prep(sqe)
+      io_uring_sqe_set_data(sqe, cb)
+      ???
+    }
+  }
 
 }
