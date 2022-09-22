@@ -16,7 +16,6 @@
 
 package fs2.io.uring.unsafe
 
-import scala.annotation.nowarn
 import scala.scalanative.libc.stddef._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
