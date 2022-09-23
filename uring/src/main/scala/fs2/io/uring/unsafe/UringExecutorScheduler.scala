@@ -49,13 +49,12 @@ private[uring] final class UringExecutorScheduler(
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
     else {
 
-      if (timeoutIsZero) {
-        if (pendingSubmissions) io_uring_submit(ring)
-      } else {
+      if (pendingSubmissions) io_uring_submit(ring)
+
+      if (!timeoutIsZero) {
 
         val timeoutSpec =
           if (timeoutIsInfinite) {
-            if (pendingSubmissions) io_uring_submit(ring)
             null
           } else {
             val ts = stackalloc[__kernel_timespec]()
