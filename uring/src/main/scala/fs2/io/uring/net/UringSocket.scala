@@ -16,7 +16,8 @@
 
 package fs2
 package io
-package uring.net
+package uring
+package net
 
 import cats.effect.kernel.Async
 import cats.effect.kernel.Sync
@@ -29,6 +30,7 @@ import com.comcast.ip4s.Port
 import com.comcast.ip4s.SocketAddress
 import fs2.Pipe
 import fs2.io.net.Socket
+import fs2.io.uring.unsafe.uring._
 import fs2.io.uring.unsafe.util._
 
 import java.io.IOException
@@ -39,8 +41,10 @@ import scala.scalanative.posix.netinet.inOps._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.posix.sys.socketOps._
 import scala.scalanative.unsafe._
+import scala.scalanative.unsigned._
 
 private[net] final class UringSocket[F[_]](
+    ring: Uring[F],
     fd: Int,
     remoteAddress: SocketAddress[IpAddress],
     defaultReadSize: Int,
@@ -50,7 +54,7 @@ private[net] final class UringSocket[F[_]](
     extends Socket[F] {
 
   private[this] def readImpl(bytes: Ptr[Byte], maxBytes: Int): F[Int] =
-    ???
+    ring(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, 0))
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
@@ -80,9 +84,9 @@ private[net] final class UringSocket[F[_]](
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ???
+  def endOfInput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 0)).void
 
-  def endOfOutput: F[Unit] = ???
+  def endOfOutput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 1)).void
 
   def isOpen: F[Boolean] = F.pure(true)
 
@@ -91,7 +95,11 @@ private[net] final class UringSocket[F[_]](
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
   def write(bytes: Chunk[Byte]): F[Unit] =
-    writeSemaphore.permit.surround(F.unit)
+    writeSemaphore.permit.surround {
+      val slice = bytes.toArraySlice
+      val ptr = toPtr(slice.values) + slice.offset.toLong
+      ring(io_uring_prep_send(_, fd, ptr, slice.length.toULong, 0)).as(slice).void // as for gc
+    }
 
   def writes: Pipe[F, Byte, Nothing] = _.chunks.foreach(write)
 

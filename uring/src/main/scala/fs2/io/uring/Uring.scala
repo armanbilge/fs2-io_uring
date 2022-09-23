@@ -25,6 +25,7 @@ import fs2.io.uring.unsafe.UringExecutorScheduler
 import fs2.io.uring.unsafe.uring._
 import fs2.io.uring.unsafe.uringOps._
 
+import java.io.IOException
 import scala.scalanative.unsafe.Ptr
 
 private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
@@ -43,10 +44,12 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
               sqe.user_data
             }
 
-            lift(submit).flatMap { addr =>
-              // if cannot cancel, fallback to get
-              G.onCancel(poll(get), lift(cancel(addr)).ifM(G.unit, get.void))
-            }
+            lift(submit)
+              .flatMap { addr =>
+                // if cannot cancel, fallback to get
+                G.onCancel(poll(get), lift(cancel(addr)).ifM(G.unit, get.void))
+              }
+              .flatTap(e => G.raiseWhen(e < 0)(new IOException(e.toString)))
           } <* G.pure(resume) // keep resume in view of the gc
         }
       }
