@@ -69,3 +69,10 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
     }.map(_ == 0) // true if we actually canceled
 
 }
+
+private[uring] object Uring {
+  def apply[F[_]](implicit F: Async[F]): F[Uring[F]] = F.executionContext.flatMap {
+    case ec: UringExecutorScheduler => F.pure(new Uring(ec))
+    case _ => F.raiseError(new RuntimeException("executionContext is not a UringExecutorScheduler"))
+  }
+}

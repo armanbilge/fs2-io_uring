@@ -24,9 +24,6 @@ import cats.effect.kernel.Sync
 import cats.effect.std.Semaphore
 import cats.syntax.all._
 import com.comcast.ip4s.IpAddress
-import com.comcast.ip4s.Ipv4Address
-import com.comcast.ip4s.Ipv6Address
-import com.comcast.ip4s.Port
 import com.comcast.ip4s.SocketAddress
 import fs2.Pipe
 import fs2.io.net.Socket
@@ -35,11 +32,8 @@ import fs2.io.uring.unsafe.util._
 
 import java.io.IOException
 import scala.scalanative.libc.errno._
-import scala.scalanative.posix.arpa.inet._
 import scala.scalanative.posix.netinet.in._
-import scala.scalanative.posix.netinet.inOps._
 import scala.scalanative.posix.sys.socket._
-import scala.scalanative.posix.sys.socketOps._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -107,6 +101,11 @@ private[net] final class UringSocket[F[_]](
 
 private[net] object UringSocket {
 
+  def apply[F[_]](ring: Uring[F], fd: Int, remote: SocketAddress[IpAddress])(implicit
+      F: Async[F]
+  ): F[UringSocket[F]] =
+    (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, 8192, _, _))
+
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
     F.delay {
       val addr = // allocate enough for an IPv6
@@ -114,41 +113,9 @@ private[net] object UringSocket {
       val len = stackalloc[socklen_t]()
       !len = sizeof[sockaddr_in6].toUInt
       if (getsockname(fd, addr, len) == -1)
-        F.raiseError(new IOException(s"getsockname: ${errno}"))
-      else if (addr.sa_family == AF_INET)
-        F.pure(toIpv4SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in]]))
-      else if (addr.sa_family == AF_INET6)
-        F.pure(toIpv6SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in6]]))
+        Left(new IOException(s"getsockname: ${errno}"))
       else
-        F.raiseError(new IOException(s"Unsupported sa_family: ${addr.sa_family}"))
-    }.flatten
-      .widen
-
-  private[this] def toIpv4SocketAddress(addr: Ptr[sockaddr_in]): SocketAddress[Ipv4Address] = {
-    val port = Port.fromInt(ntohs(addr.sin_port).toInt).get
-    val addrBytes = addr.sin_addr.at1.asInstanceOf[Ptr[Byte]]
-    val host = Ipv4Address.fromBytes(
-      addrBytes(0).toInt,
-      addrBytes(1).toInt,
-      addrBytes(2).toInt,
-      addrBytes(3).toInt
-    )
-    SocketAddress(host, port)
-  }
-
-  private[this] def toIpv6SocketAddress(addr: Ptr[sockaddr_in6]): SocketAddress[Ipv6Address] = {
-    val port = Port.fromInt(ntohs(addr.sin6_port).toInt).get
-    val addrBytes = addr.sin6_addr.at1.asInstanceOf[Ptr[Byte]]
-    val host = Ipv6Address.fromBytes {
-      val addr = new Array[Byte](16)
-      var i = 0
-      while (i < addr.length) {
-        addr(i) = addrBytes(i.toLong)
-        i += 1
-      }
-      addr
-    }.get
-    SocketAddress(host, port)
-  }
+        SocketAddressHelpers.toSocketAddress(addr)
+    }.flatMap(_.liftTo)
 
 }
