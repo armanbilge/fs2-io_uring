@@ -65,7 +65,8 @@ private[uring] object uring {
     Nat._2
   ]]
 
-  type io_uring_sqe = CStruct7[__u8, __u8, __u16, __s32, __u32, __u64, __u16]
+  type io_uring_sqe =
+    CStruct10[__u8, __u8, __u16, __s32, __u64, __u64, __u32, __u32, __u64, CArray[__u64, Nat._3]]
 
   def io_uring_queue_init(entries: CUnsignedInt, ring: Ptr[io_uring], flags: CUnsignedInt): CInt =
     extern
@@ -169,12 +170,10 @@ private[uring] object uringOps {
     def ioprio_=(ioprio: __u16): Unit = !io_uring_sqe.at3 = ioprio
     def fd: __s32 = io_uring_sqe._4
     def fd_=(fd: __s32): Unit = !io_uring_sqe.at4 = fd
-    def len: __u32 = io_uring_sqe._5
-    def len_=(len: __u32): Unit = !io_uring_sqe.at5 = len
-    def user_data: __u64 = io_uring_sqe._6
-    def user_data_=(user_data: __u64): Unit = !io_uring_sqe.at6 = user_data
-    def personality: __u16 = io_uring_sqe._7
-    def personality_=(personality: __u16): Unit = !io_uring_sqe.at7 = personality
+    def len: __u32 = io_uring_sqe._7
+    def len_=(len: __u32): Unit = !io_uring_sqe.at7 = len
+    def user_data: __u64 = io_uring_sqe._9
+    def user_data_=(user_data: __u64): Unit = !io_uring_sqe.at9 = user_data
   }
 
   implicit final class io_uring_cqeOps(val io_uring_cqe: Ptr[io_uring_cqe]) extends AnyVal {
