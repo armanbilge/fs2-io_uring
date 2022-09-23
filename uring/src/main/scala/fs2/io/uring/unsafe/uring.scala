@@ -92,6 +92,9 @@ private[uring] object uring {
   @name("fs2_io_uring_cq_advance")
   def io_uring_cq_advance(ring: Ptr[io_uring], nr: CUnsignedInt): Unit = extern
 
+  @name("fs2_io_uring_prep_nop")
+  def io_uring_prep_nop(sqe: Ptr[io_uring_sqe]): Unit = extern
+
   @name("fs2_io_uring_prep_accept")
   def io_uring_prep_accept(
       sqe: Ptr[io_uring_sqe],

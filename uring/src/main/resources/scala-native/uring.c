@@ -8,6 +8,8 @@ void fs2_io_uring_cq_advance(struct io_uring *ring, unsigned nr) {
   io_uring_cq_advance(ring, nr);
 }
 
+void fs2_io_uring_prep_nop(struct io_uring_sqe *sqe) { io_uring_prep_nop(sqe); }
+
 void fs2_io_uring_prep_accept(struct io_uring_sqe *sqe, int fd,
                               struct sockaddr *addr, socklen_t *addrlen,
                               int flags) {
@@ -15,7 +17,7 @@ void fs2_io_uring_prep_accept(struct io_uring_sqe *sqe, int fd,
 }
 
 void fs2_io_uring_prep_cancel64(struct io_uring_sqe *sqe, __u64 user_data,
-                              int flags) {
+                                int flags) {
   io_uring_prep_cancel64(sqe, user_data, flags);
 }
 

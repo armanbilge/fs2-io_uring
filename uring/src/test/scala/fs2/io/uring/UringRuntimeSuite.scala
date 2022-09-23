@@ -15,9 +15,11 @@
  */
 
 package fs2.io.uring
-package unsafe
 
 import cats.effect.IO
+import fs2.io.uring.unsafe.UringRuntime
+import fs2.io.uring.unsafe.UringExecutorScheduler
+import fs2.io.uring.unsafe.uring._
 
 import scala.concurrent.duration._
 
@@ -43,6 +45,12 @@ class UringRuntimeSuite extends UringSuite {
     }
 
     result.assertEquals(List(1.second, 500.millis, 100.millis))
+  }
+
+  test("submission") {
+    Uring[IO].flatMap { ring =>
+      ring(io_uring_prep_nop(_))
+    }.assertEquals(0)
   }
 
 }
