@@ -22,7 +22,7 @@ void fs2_io_uring_prep_cancel64(struct io_uring_sqe *sqe, __u64 user_data,
 }
 
 void fs2_io_uring_prep_close(struct io_uring_sqe *sqe, int fd) {
-  void io_uring_prep_close(sqe, fd);
+  io_uring_prep_close(sqe, fd);
 }
 
 void fs2_io_uring_prep_connect(struct io_uring_sqe *sqe, int fd,
