@@ -82,7 +82,9 @@ private[net] final class UringSocket[F[_]](
     writeSemaphore.permit.surround {
       val slice = bytes.toArraySlice
       val ptr = toPtr(slice.values) + slice.offset.toLong
-      ring(io_uring_prep_send(_, fd, ptr, slice.length.toULong, 0)).as(slice).void // as for gc
+      ring(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
+        .as(slice) // to keep in scope of gc
+        .void
     }
 
   def writes: Pipe[F, Byte, Nothing] = _.chunks.foreach(write)
