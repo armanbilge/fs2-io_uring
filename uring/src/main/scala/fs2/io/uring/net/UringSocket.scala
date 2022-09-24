@@ -47,33 +47,23 @@ private[net] final class UringSocket[F[_]](
 )(implicit F: Async[F])
     extends Socket[F] {
 
-  private[this] def readImpl(bytes: Ptr[Byte], maxBytes: Int): F[Int] =
-    ring(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, 0))
+  private[this] def recv(bytes: Ptr[Byte], maxBytes: Int, flags: Int): F[Int] =
+    ring(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
       for {
         bytes <- F.delay(new Array[Byte](maxBytes))
-        readed <- readImpl(toPtr(bytes), maxBytes)
+        readed <- recv(toPtr(bytes), maxBytes, 0)
       } yield Option.when(readed > 0)(Chunk.array(bytes, 0, readed))
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
     readSemaphore.permit.surround {
-      F.delay(new Array[Byte](numBytes)).flatMap { bytes =>
-        val ptr = toPtr(bytes)
-
-        def go(i: Int): F[Int] = {
-          val remaining = numBytes - i
-          readImpl(ptr + i.toLong, remaining).flatMap {
-            case 0           => F.pure(i)
-            case `remaining` => F.pure(numBytes)
-            case readed      => go(i + readed)
-          }
-        }
-
-        go(0).map(Chunk.array(bytes, 0, _))
-      }
+      for {
+        bytes <- F.delay(new Array[Byte](numBytes))
+        readed <- recv(toPtr(bytes), numBytes, MSG_WAITALL)
+      } yield Chunk.array(bytes, 0, readed)
     }
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
