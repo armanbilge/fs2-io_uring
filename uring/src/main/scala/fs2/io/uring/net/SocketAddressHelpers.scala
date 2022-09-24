@@ -55,7 +55,7 @@ private[net] object SocketAddressHelpers {
 
     addr.sin_family = AF_INET.toUShort
     addr.sin_port = htons(address.port.value.toUShort)
-    addr.sin_addr.s_addr = address.host.toLong.toUInt
+    addr.sin_addr.s_addr = htonl(address.host.toLong.toUInt)
 
     f(addr, len)
   }
