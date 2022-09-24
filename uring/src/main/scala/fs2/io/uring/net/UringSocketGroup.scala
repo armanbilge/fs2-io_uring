@@ -34,7 +34,6 @@ import fs2.io.net.SocketOption
 import fs2.io.uring.unsafe.uring._
 
 import scala.scalanative.posix.sys.socket._
-import scala.scalanative.unsigned._
 
 private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
@@ -42,7 +41,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
     Resource.eval(Uring[F]).flatMap { implicit ring =>
       Resource.eval(to.resolve).flatMap { address =>
-        socket(address.host.isInstanceOf[Ipv4Address]).evalMap { fd =>
+        openSocket(address.host.isInstanceOf[Ipv4Address]).evalMap { fd =>
           ring { sqe =>
             SocketAddressHelpers.toSockaddr(address)(
               io_uring_prep_connect(sqe, fd, _, _)
@@ -64,10 +63,10 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
       options: List[SocketOption]
   ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] = ???
 
-  private def socket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
+  private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
     Resource.make[F, Int] {
       val domain = if (ipv4) AF_INET else AF_INET6
-      ring(io_uring_prep_socket(_, domain, SOCK_STREAM, 0, 0.toUInt))
+      F.delay(socket(domain, SOCK_STREAM, 0))
     } { fd =>
       ring(io_uring_prep_close(_, fd)).void
     }
