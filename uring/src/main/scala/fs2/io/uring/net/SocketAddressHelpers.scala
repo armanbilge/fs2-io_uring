@@ -89,15 +89,17 @@ private[net] object SocketAddressHelpers {
 
     f(addr, len) match {
       case Left(ex) => Left(ex)
-      case _ =>
-        if (addr.sa_family == AF_INET)
-          Right(toIpv4SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in]]))
-        else if (addr.sa_family == AF_INET6)
-          Right(toIpv6SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in6]]))
-        else
-          Left(new IOException(s"Unsupported sa_family: ${addr.sa_family}"))
+      case _        => toSocketAddress(addr)
     }
   }
+
+  def toSocketAddress(addr: Ptr[sockaddr]): Either[Throwable, SocketAddress[IpAddress]] =
+    if (addr.sa_family == AF_INET)
+      Right(toIpv4SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in]]))
+    else if (addr.sa_family == AF_INET6)
+      Right(toIpv6SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in6]]))
+    else
+      Left(new IOException(s"Unsupported sa_family: ${addr.sa_family}"))
 
   private[this] def toIpv4SocketAddress(addr: Ptr[sockaddr_in]): SocketAddress[Ipv4Address] = {
     val port = Port.fromInt(ntohs(addr.sin_port).toInt).get

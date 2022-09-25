@@ -26,12 +26,14 @@ import com.comcast.ip4s._
 import fs2.io.net.Socket
 import fs2.io.net.SocketGroup
 import fs2.io.net.SocketOption
+import fs2.io.uring.unsafe.netinetin._
 import fs2.io.uring.unsafe.uring._
 
 import java.net.BindException
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.errno._
 import scala.scalanative.posix.sys.socket._
+import scala.scalanative.unsafe._
 
 private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
@@ -94,7 +96,35 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
           bindF *> listenF *> UringSocket.getLocalAddress(fd)
         }
 
-      } yield (localAddress, Stream.empty)
+        sockets = Stream
+          .bracket(F.delay(Zone.open()))(z => F.delay(z.close()))
+          .evalMap { implicit z =>
+            F.delay {
+              val addr = // allocate enough for an IPv6
+                alloc[sockaddr_in6]().asInstanceOf[Ptr[sockaddr]]
+              val len = alloc[socklen_t]()
+              (addr, len)
+            }
+          }
+          .flatMap { case (addr, len) =>
+            Stream.repeatEval {
+              val acceptF =
+                F.delay(!len = sizeof[sockaddr_in6].toUInt) *>
+                  ring(io_uring_prep_accept(_, fd, addr, len, 0))
+
+              val convert =
+                F.delay(SocketAddressHelpers.toSocketAddress(addr))
+                  .flatMap(_.liftTo)
+
+              acceptF.flatMap { clientFd =>
+                convert.flatMap { remoteAddress =>
+                  UringSocket(ring, clientFd, remoteAddress)
+                }
+              }
+            }
+          }
+
+      } yield (localAddress, sockets)
     }
 
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
