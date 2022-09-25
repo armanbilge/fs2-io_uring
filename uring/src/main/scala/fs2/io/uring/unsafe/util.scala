@@ -19,7 +19,7 @@ package fs2.io.uring.unsafe
 import scala.scalanative.unsafe._
 import scala.scalanative.runtime.ByteArray
 
-object util {
+private[uring] object util {
 
   def toPtr(bytes: Array[Byte]): Ptr[Byte] =
     bytes.asInstanceOf[ByteArray].at(0)

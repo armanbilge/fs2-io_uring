@@ -34,10 +34,9 @@ private[uring] final class UringExecutorScheduler(
     maxEvents: Int
 ) extends PollingExecutorScheduler(pollEvery) {
 
+  private[this] var pendingSubmissions: Boolean = false
   private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
     Collections.newSetFromMap(new IdentityHashMap)
-
-  private[this] var pendingSubmissions: Boolean = false
 
   def getSqe(cb: Either[Throwable, Int] => Unit): Ptr[io_uring_sqe] = {
     pendingSubmissions = true
