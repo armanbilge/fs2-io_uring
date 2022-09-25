@@ -22,17 +22,15 @@ package net
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.syntax.all._
-import com.comcast.ip4s.Dns
-import com.comcast.ip4s.Host
-import com.comcast.ip4s.IpAddress
-import com.comcast.ip4s.Ipv4Address
-import com.comcast.ip4s.Port
-import com.comcast.ip4s.SocketAddress
+import com.comcast.ip4s._
 import fs2.io.net.Socket
 import fs2.io.net.SocketGroup
 import fs2.io.net.SocketOption
 import fs2.io.uring.unsafe.uring._
 
+import java.net.BindException
+import scala.scalanative.libc.errno._
+import scala.scalanative.posix.errno._
 import scala.scalanative.posix.sys.socket._
 
 private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
@@ -61,7 +59,43 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
       address: Option[Host],
       port: Option[Port],
       options: List[SocketOption]
-  ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] = ???
+  ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] =
+    Resource.eval(Uring[F]).flatMap { implicit ring =>
+      for {
+
+        resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
+
+        fd <- openSocket(resolvedAddress.isInstanceOf[Ipv4Address])
+
+        _ <- Resource.eval {
+          val bindF = F.delay {
+            val socketAddress = SocketAddress(resolvedAddress, port.getOrElse(port"0"))
+
+            if (SocketAddressHelpers.toSockaddr(socketAddress)(bind(fd, _, _)) == 0)
+              F.unit
+            else
+              errno match {
+                case e if e == EADDRINUSE =>
+                  F.raiseError(new BindException("Address already in use"))
+                case e if e == 99 => // EADDRNOTAVAIL
+                  F.raiseError(new BindException("Cannot assign requested address"))
+                case e =>
+                  F.raiseError(new IOException(e.toString))
+              }
+          }.flatten
+
+          val listenF = F.delay {
+            if (listen(fd, 65535) == 0)
+              F.unit
+            else
+              F.raiseError(new IOException(errno.toString))
+          }.flatten
+
+          bindF *> listenF
+        }
+
+      } yield ???
+    }
 
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
     Resource.make[F, Int] {
