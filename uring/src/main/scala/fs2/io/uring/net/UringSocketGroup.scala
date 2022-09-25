@@ -29,9 +29,7 @@ import fs2.io.net.SocketOption
 import fs2.io.uring.unsafe.netinetin._
 import fs2.io.uring.unsafe.uring._
 
-import java.net.BindException
 import scala.scalanative.libc.errno._
-import scala.scalanative.posix.errno._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 
@@ -77,14 +75,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
             if (SocketAddressHelpers.toSockaddr(socketAddress)(bind(fd, _, _)) == 0)
               F.unit
             else
-              errno match {
-                case e if e == EADDRINUSE =>
-                  F.raiseError(new BindException("Address already in use"))
-                case e if e == 99 => // EADDRNOTAVAIL
-                  F.raiseError(new BindException("Cannot assign requested address"))
-                case e =>
-                  F.raiseError(new IOException(e.toString))
-              }
+              F.raiseError(IOExceptionHelper(errno))
           }.flatten
 
           val listenF = F.delay {
