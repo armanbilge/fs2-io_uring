@@ -36,5 +36,6 @@ lazy val uring = project
     libraryDependencies ++= Seq(
       "co.fs2" %%% "fs2-io" % fs2Version,
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion
-    )
+    ),
+    Test / testOptions += Tests.Argument("+l")
   )
