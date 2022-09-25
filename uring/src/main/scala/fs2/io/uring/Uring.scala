@@ -38,9 +38,8 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
         ): (Either[Throwable, Int] => Unit, G[Int], F ~> G) => G[Int] = { (resume, get, lift) =>
           G.uncancelable { poll =>
             val submit = F.delay {
-              val sqe = ring.getSqe()
+              val sqe = ring.getSqe(resume)
               prep(sqe)
-              io_uring_sqe_set_data(sqe, resume)
               sqe.user_data
             }
 
@@ -50,22 +49,15 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
                 G.onCancel(poll(get), lift(cancel(addr)).ifM(G.unit, get.void))
               }
               .flatTap(e => G.raiseWhen(e < 0)(new IOException(e.toString)))
-          } <* G.pure(resume) // keep resume in view of the gc
+          }
         }
       }
     }
 
   private[this] def cancel(addr: __u64): F[Boolean] =
-    F.async[Int] { cb =>
-      F.delay {
-        val sqe = ring.getSqe()
-        io_uring_prep_cancel64(sqe, addr, 0)
-        io_uring_sqe_set_data(sqe, cb)
-
-        // trickery to keep cb in view of the gc
-        // cancel ops cannot get canceled, so should never run
-        Some(F.pure(cb).productR(F.never))
-      }
+    F.async_[Int] { cb =>
+      val sqe = ring.getSqe(cb)
+      io_uring_prep_cancel64(sqe, addr, 0)
     }.map(_ == 0) // true if we actually canceled
 
 }
