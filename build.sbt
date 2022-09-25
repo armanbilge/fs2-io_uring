@@ -22,9 +22,8 @@ val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
   c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
-    .withLinkingOptions(c.linkingOptions :+ "-L/home/linuxbrew/.linuxbrew/lib")
+    .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
 }
-ThisBuild / envVars ++= Map("LD_LIBRARY_PATH" -> "/home/linuxbrew/.linuxbrew/lib")
 
 lazy val root = tlCrossRootProject.aggregate(uring)
 
