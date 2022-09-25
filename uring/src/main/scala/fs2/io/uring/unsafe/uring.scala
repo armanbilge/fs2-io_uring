@@ -16,7 +16,6 @@
 
 package fs2.io.uring.unsafe
 
-import scala.annotation.nowarn
 import scala.scalanative.libc.stddef._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
@@ -25,7 +24,6 @@ import scala.scalanative.runtime.Intrinsics._
 
 @link("uring")
 @extern
-@nowarn
 private[uring] object uring {
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
