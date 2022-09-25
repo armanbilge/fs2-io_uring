@@ -89,4 +89,36 @@ class TcpSocketSuite extends UringSuite {
       }
   }
 
+  test("readN yields chunks of the requested size") {
+    val message = Chunk.array("123456789012345678901234567890".getBytes)
+    val sizes = Vector(1, 2, 3, 4, 3, 2, 1)
+
+    Stream
+      .resource(setup)
+      .flatMap { case (server, clients) =>
+        val junkServer = server.map { socket =>
+          Stream
+            .chunk(message)
+            .through(socket.writes)
+            .onFinalize(socket.endOfOutput)
+        }.parJoinUnbounded
+
+        val client =
+          clients
+            .take(1)
+            .flatMap { socket =>
+              Stream
+                .emits(sizes)
+                .evalMap(socket.readN(_))
+                .map(_.size)
+            }
+            .take(sizes.length.toLong)
+
+        client.concurrently(junkServer)
+      }
+      .compile
+      .toVector
+      .assertEquals(sizes)
+  }
+
 }
