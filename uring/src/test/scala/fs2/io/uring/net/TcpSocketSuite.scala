@@ -121,4 +121,25 @@ class TcpSocketSuite extends UringSuite {
       .assertEquals(sizes)
   }
 
+  test("write - concurrent calls do not cause a WritePendingException") {
+    val message = Chunk.array(("123456789012345678901234567890" * 10000).getBytes)
+
+    Stream
+      .resource(setup)
+      .flatMap { case (server, clients) =>
+        val readOnlyServer = server.map(_.reads).parJoinUnbounded
+        val client =
+          clients.take(1).flatMap { socket =>
+            // concurrent writes
+            Stream {
+              Stream.eval(socket.write(message)).repeatN(10L)
+            }.repeatN(2L).parJoinUnbounded
+          }
+
+        client.concurrently(readOnlyServer)
+      }
+      .compile
+      .drain
+  }
+
 }
