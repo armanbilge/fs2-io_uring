@@ -25,6 +25,8 @@ import fs2.text._
 
 import java.net.BindException
 import java.net.ConnectException
+import java.util.concurrent.TimeoutException
+import scala.concurrent.duration._
 
 class TcpSocketSuite extends UringSuite {
 
@@ -194,6 +196,20 @@ class TcpSocketSuite extends UringSuite {
           )
       }
     } yield ())
+  }
+
+  // TODO options test
+
+  // TODO decide about "read after timed out read not allowed"
+
+  test("can shutdown a socket that's pending a read") {
+    sg.serverResource().use { case (bindAddress, clients) =>
+      sg.client(bindAddress).use { _ =>
+        clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
+          case _: TimeoutException => ()
+        }
+      }
+    }
   }
 
 }
