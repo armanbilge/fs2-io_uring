@@ -67,7 +67,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
 
         fd <- openSocket(resolvedAddress.isInstanceOf[Ipv4Address])
 
-        _ <- Resource.eval {
+        localAddress <- Resource.eval {
           val bindF = F.delay {
             val socketAddress = SocketAddress(resolvedAddress, port.getOrElse(port"0"))
 
@@ -91,10 +91,10 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
               F.raiseError(new IOException(errno.toString))
           }.flatten
 
-          bindF *> listenF
+          bindF *> listenF *> UringSocket.getLocalAddress(fd)
         }
 
-      } yield ???
+      } yield (localAddress, Stream.empty)
     }
 
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =

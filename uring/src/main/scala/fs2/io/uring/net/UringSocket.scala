@@ -32,7 +32,6 @@ import fs2.io.uring.unsafe.util._
 
 import java.io.IOException
 import scala.scalanative.libc.errno._
-import scala.scalanative.posix.netinet.in._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
@@ -100,14 +99,12 @@ private[net] object UringSocket {
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
     F.delay {
-      val addr = // allocate enough for an IPv6
-        stackalloc[sockaddr_in6]().asInstanceOf[Ptr[sockaddr]]
-      val len = stackalloc[socklen_t]()
-      !len = sizeof[sockaddr_in6].toUInt
-      if (getsockname(fd, addr, len) == -1)
-        Left(new IOException(s"getsockname: ${errno}"))
-      else
-        SocketAddressHelpers.toSocketAddress(addr)
+      SocketAddressHelpers.toSocketAddress { (addr, len) =>
+        if (getsockname(fd, addr, len) == -1)
+          Left(new IOException(s"getsockname: ${errno}"))
+        else
+          Either.unit
+      }
     }.flatMap(_.liftTo)
 
 }

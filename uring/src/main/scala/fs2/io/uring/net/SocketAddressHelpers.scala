@@ -79,13 +79,25 @@ private[net] object SocketAddressHelpers {
     f(addr, len)
   }
 
-  def toSocketAddress(sockaddr: Ptr[sockaddr]): Either[Throwable, SocketAddress[IpAddress]] =
-    if (sockaddr.sa_family == AF_INET)
-      Right(toIpv4SocketAddress(sockaddr.asInstanceOf[Ptr[sockaddr_in]]))
-    else if (sockaddr.sa_family == AF_INET6)
-      Right(toIpv6SocketAddress(sockaddr.asInstanceOf[Ptr[sockaddr_in6]]))
-    else
-      Left(new IOException(s"Unsupported sa_family: ${sockaddr.sa_family}"))
+  def toSocketAddress(
+      f: (Ptr[sockaddr], Ptr[socklen_t]) => Either[Throwable, Unit]
+  ): Either[Throwable, SocketAddress[IpAddress]] = {
+    val addr = // allocate enough for an IPv6
+      stackalloc[sockaddr_in6]().asInstanceOf[Ptr[sockaddr]]
+    val len = stackalloc[socklen_t]()
+    !len = sizeof[sockaddr_in6].toUInt
+
+    f(addr, len) match {
+      case Left(ex) => Left(ex)
+      case _ =>
+        if (addr.sa_family == AF_INET)
+          Right(toIpv4SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in]]))
+        else if (addr.sa_family == AF_INET6)
+          Right(toIpv6SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in6]]))
+        else
+          Left(new IOException(s"Unsupported sa_family: ${addr.sa_family}"))
+    }
+  }
 
   private[this] def toIpv4SocketAddress(addr: Ptr[sockaddr_in]): SocketAddress[Ipv4Address] = {
     val port = Port.fromInt(ntohs(addr.sin_port).toInt).get
