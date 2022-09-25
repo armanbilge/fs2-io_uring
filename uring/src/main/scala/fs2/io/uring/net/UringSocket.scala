@@ -39,7 +39,7 @@ import scala.scalanative.unsigned._
 private[net] final class UringSocket[F[_]](
     ring: Uring[F],
     fd: Int,
-    remoteAddress: SocketAddress[IpAddress],
+    _remoteAddress: SocketAddress[IpAddress],
     defaultReadSize: Int,
     readSemaphore: Semaphore[F],
     writeSemaphore: Semaphore[F]
@@ -73,7 +73,7 @@ private[net] final class UringSocket[F[_]](
 
   def isOpen: F[Boolean] = F.pure(true)
 
-  def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(remoteAddress)
+  def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(_remoteAddress)
 
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
