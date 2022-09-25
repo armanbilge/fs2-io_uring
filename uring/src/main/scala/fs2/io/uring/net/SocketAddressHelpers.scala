@@ -94,9 +94,9 @@ private[net] object SocketAddressHelpers {
   }
 
   def toSocketAddress(addr: Ptr[sockaddr]): Either[Throwable, SocketAddress[IpAddress]] =
-    if (addr.sa_family == AF_INET)
+    if (addr.sa_family.toInt == AF_INET)
       Right(toIpv4SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in]]))
-    else if (addr.sa_family == AF_INET6)
+    else if (addr.sa_family.toInt == AF_INET6)
       Right(toIpv6SocketAddress(addr.asInstanceOf[Ptr[sockaddr_in6]]))
     else
       Left(new IOException(s"Unsupported sa_family: ${addr.sa_family}"))
