@@ -17,13 +17,14 @@
 package fs2.io.uring.unsafe
 
 import scala.scalanative.libc.stddef._
+import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 import scala.scalanative.runtime.Intrinsics._
 
 @link("uring")
 @extern
-private[unsafe] object uring {
+private[uring] object uring {
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
   type __s32 = CInt
@@ -62,12 +63,16 @@ private[unsafe] object uring {
     Nat._2
   ]]
 
-  type io_uring_sqe = CStruct7[__u8, __u8, __u16, __s32, __u32, __u64, __u16]
+  type io_uring_sqe =
+    CStruct10[__u8, __u8, __u16, __s32, __u64, __u64, __u32, __u32, __u64, CArray[__u64, Nat._3]]
 
   def io_uring_queue_init(entries: CUnsignedInt, ring: Ptr[io_uring], flags: CUnsignedInt): CInt =
     extern
 
   def io_uring_queue_exit(ring: Ptr[io_uring]): Unit = extern
+
+  @name("fs2_io_uring_get_sqe")
+  def io_uring_get_sqe(ring: Ptr[io_uring]): Ptr[io_uring_sqe] = extern
 
   def io_uring_submit(ring: Ptr[io_uring]): CInt = extern
 
@@ -86,17 +91,88 @@ private[unsafe] object uring {
   @name("fs2_io_uring_cq_advance")
   def io_uring_cq_advance(ring: Ptr[io_uring], nr: CUnsignedInt): Unit = extern
 
+  @name("fs2_io_uring_prep_nop")
+  def io_uring_prep_nop(sqe: Ptr[io_uring_sqe]): Unit = extern
+
+  @name("fs2_io_uring_prep_accept")
+  def io_uring_prep_accept(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      addr: Ptr[sockaddr],
+      addrlen: Ptr[socklen_t],
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_cancel64")
+  def io_uring_prep_cancel64(sqe: Ptr[io_uring_sqe], user_data: __u64, flags: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_close")
+  def io_uring_prep_close(sqe: Ptr[io_uring_sqe], fd: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_connect")
+  def io_uring_prep_connect(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      addr: Ptr[sockaddr],
+      addrlen: socklen_t
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_recv")
+  def io_uring_prep_recv(
+      sqe: Ptr[io_uring_sqe],
+      sockfd: CInt,
+      buf: Ptr[Byte],
+      len: size_t,
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_send")
+  def io_uring_prep_send(
+      sqe: Ptr[io_uring_sqe],
+      sockfd: CInt,
+      buf: Ptr[Byte],
+      len: size_t,
+      flags: CInt
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_shutdown")
+  def io_uring_prep_shutdown(sqe: Ptr[io_uring_sqe], fd: CInt, how: CInt): Unit = extern
+
+  @name("fs2_io_uring_prep_socket")
+  def io_uring_prep_socket(
+      sqe: Ptr[io_uring_sqe],
+      domain: CInt,
+      `type`: CInt,
+      protocol: CInt,
+      flags: CUnsignedInt
+  ): Unit = extern
+
 }
 
-private[unsafe] object uringOps {
+private[uring] object uringOps {
 
   import uring._
 
-  def io_uring_cqe_set_data[A <: AnyRef](cqe: Ptr[io_uring_cqe], data: A): Unit =
-    cqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
+  def io_uring_sqe_set_data[A <: AnyRef](sqe: Ptr[io_uring_sqe], data: A): Unit =
+    sqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
 
   def io_uring_cqe_get_data[A <: AnyRef](cqe: Ptr[io_uring_cqe]): A =
     castRawPtrToObject(castLongToRawPtr(cqe.user_data.toLong)).asInstanceOf[A]
+
+  implicit final class io_uring_sqeOps(val io_uring_sqe: Ptr[io_uring_sqe]) extends AnyVal {
+    def opcode: __u8 = io_uring_sqe._1
+    def opcode_=(opcode: __u8): Unit = !io_uring_sqe.at1 = opcode
+    def flags: __u8 = io_uring_sqe._2
+    def flags_=(flags: __u8): Unit = !io_uring_sqe.at2 = flags
+    def ioprio: __u16 = io_uring_sqe._3
+    def ioprio_=(ioprio: __u16): Unit = !io_uring_sqe.at3 = ioprio
+    def fd: __s32 = io_uring_sqe._4
+    def fd_=(fd: __s32): Unit = !io_uring_sqe.at4 = fd
+    def len: __u32 = io_uring_sqe._7
+    def len_=(len: __u32): Unit = !io_uring_sqe.at7 = len
+    def user_data: __u64 = io_uring_sqe._9
+    def user_data_=(user_data: __u64): Unit = !io_uring_sqe.at9 = user_data
+  }
 
   implicit final class io_uring_cqeOps(val io_uring_cqe: Ptr[io_uring_cqe]) extends AnyVal {
     def user_data: __u64 = io_uring_cqe._1

@@ -38,23 +38,29 @@ private[uring] final class UringExecutorScheduler(
   private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
     Collections.newSetFromMap(new IdentityHashMap)
 
+  def getSqe(cb: Either[Throwable, Int] => Unit): Ptr[io_uring_sqe] = {
+    pendingSubmissions = true
+    val sqe = io_uring_get_sqe(ring)
+    io_uring_sqe_set_data(sqe, cb)
+    callbacks.add(cb)
+    sqe
+  }
+
   def poll(timeout: Duration): Boolean = {
 
     val timeoutIsZero = timeout == Duration.Zero
     val timeoutIsInfinite = timeout == Duration.Inf
-    val noCallbacks = callbacks.isEmpty()
 
-    if ((timeoutIsInfinite || timeoutIsZero) && noCallbacks)
+    if ((timeoutIsInfinite || timeoutIsZero) && callbacks.isEmpty())
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
     else {
 
-      if (timeoutIsZero) {
-        if (pendingSubmissions) io_uring_submit(ring)
-      } else {
+      if (pendingSubmissions) io_uring_submit(ring)
+
+      if (!timeoutIsZero) {
 
         val timeoutSpec =
           if (timeoutIsInfinite) {
-            if (pendingSubmissions) io_uring_submit(ring)
             null
           } else {
             val ts = stackalloc[__kernel_timespec]()
