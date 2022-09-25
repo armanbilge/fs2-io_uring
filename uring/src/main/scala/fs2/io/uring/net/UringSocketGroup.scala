@@ -116,15 +116,18 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
                 F.delay(SocketAddressHelpers.toSocketAddress(addr))
                   .flatMap(_.liftTo)
 
-              acceptF.flatMap { clientFd =>
-                convert.flatMap { remoteAddress =>
-                  UringSocket(ring, clientFd, remoteAddress)
+              acceptF
+                .flatMap { clientFd =>
+                  convert.flatMap { remoteAddress =>
+                    UringSocket(ring, clientFd, remoteAddress)
+                  }
                 }
-              }
+                .attempt
+                .map(_.toOption)
             }
           }
 
-      } yield (localAddress, sockets)
+      } yield (localAddress, sockets.unNone)
     }
 
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
