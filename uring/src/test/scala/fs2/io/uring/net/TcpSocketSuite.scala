@@ -47,4 +47,46 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
+  val setup = for {
+    serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
+    (bindAddress, server) = serverSetup
+    clients = Stream.resource(sg.client(bindAddress)).repeat
+  } yield server -> clients
+
+  test("echo requests - each concurrent client gets back what it sent") {
+    val message = Chunk.array("fs2.rocks".getBytes)
+    val clientCount = 20L
+
+    Stream
+      .resource(setup)
+      .flatMap { case (server, clients) =>
+        val echoServer = server.map { socket =>
+          socket.reads
+            .through(socket.writes)
+            .onFinalize(socket.endOfOutput)
+        }.parJoinUnbounded
+
+        val msgClients = clients
+          .take(clientCount)
+          .map { socket =>
+            Stream
+              .chunk(message)
+              .through(socket.writes)
+              .onFinalize(socket.endOfOutput) ++
+              socket.reads.chunks
+                .map(bytes => new String(bytes.toArray))
+          }
+          .parJoin(10)
+          .take(clientCount)
+
+        msgClients.concurrently(echoServer)
+      }
+      .compile
+      .toVector
+      .map { it =>
+        assertEquals(it.size.toLong, clientCount)
+        assert(it.forall(_ == "fs2.rocks"))
+      }
+  }
+
 }

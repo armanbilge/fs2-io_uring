@@ -42,11 +42,12 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     Resource.eval(Uring[F]).flatMap { implicit ring =>
       Resource.eval(to.resolve).flatMap { address =>
         openSocket(address.host.isInstanceOf[Ipv4Address]).evalMap { fd =>
-          ring { sqe =>
-            SocketAddressHelpers.toSockaddr(address)(
-              io_uring_prep_connect(sqe, fd, _, _)
-            )
-          } *> UringSocket(ring, fd, address)
+          SocketAddressHelpers.allocateSockaddr.use { case (addr, len) =>
+            F.delay(SocketAddressHelpers.toSockaddr(address, addr, len)) *>
+              ring(io_uring_prep_connect(_, fd, addr, !len)) *>
+              UringSocket(ring, fd, address)
+          }
+
         }
       }
     }
@@ -97,15 +98,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
         }
 
         sockets = Stream
-          .bracket(F.delay(Zone.open()))(z => F.delay(z.close()))
-          .evalMap { implicit z =>
-            F.delay {
-              val addr = // allocate enough for an IPv6
-                alloc[sockaddr_in6]().asInstanceOf[Ptr[sockaddr]]
-              val len = alloc[socklen_t]()
-              (addr, len)
-            }
-          }
+          .resource(SocketAddressHelpers.allocateSockaddr)
           .flatMap { case (addr, len) =>
             Stream.repeatEval {
               val acceptF =
