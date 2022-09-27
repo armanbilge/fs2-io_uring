@@ -20,6 +20,7 @@ package uring
 package net
 
 import cats.effect.kernel.Async
+import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
 import cats.effect.std.Semaphore
 import cats.syntax.all._
@@ -40,6 +41,7 @@ private[net] final class UringSocket[F[_]](
     ring: Uring[F],
     fd: Int,
     _remoteAddress: SocketAddress[IpAddress],
+    buffer: ResizableBuffer[F],
     defaultReadSize: Int,
     readSemaphore: Semaphore[F],
     writeSemaphore: Semaphore[F]
@@ -52,17 +54,18 @@ private[net] final class UringSocket[F[_]](
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
       for {
-        bytes <- F.delay(new Array[Byte](maxBytes))
-        readed <- recv(toPtr(bytes), maxBytes, 0)
-      } yield Option.when(readed > 0)(Chunk.array(bytes, 0, readed))
+        buf <- buffer.get(maxBytes)
+        readed <- recv(buf, maxBytes, 0)
+      } yield Option.when(readed > 0)(Chunk.array(toArray(buf, readed)))
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
     readSemaphore.permit.surround {
       for {
+        buf <- buffer.get(numBytes)
         bytes <- F.delay(new Array[Byte](numBytes))
-        readed <- recv(toPtr(bytes), numBytes, MSG_WAITALL)
-      } yield Chunk.array(bytes, 0, readed)
+        readed <- recv(buf, numBytes, MSG_WAITALL)
+      } yield Chunk.array(toArray(buf, readed))
     }
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
@@ -94,8 +97,10 @@ private[net] object UringSocket {
 
   def apply[F[_]](ring: Uring[F], fd: Int, remote: SocketAddress[IpAddress])(implicit
       F: Async[F]
-  ): F[UringSocket[F]] =
-    (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, 8192, _, _))
+  ): Resource[F, UringSocket[F]] =
+    ResizableBuffer(8192).evalMap { buf =>
+      (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
+    }
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
     F.delay {
