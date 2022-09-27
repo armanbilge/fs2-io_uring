@@ -65,7 +65,7 @@ private[net] final class UringSocket[F[_]](
         buf <- buffer.get(numBytes)
         bytes <- F.delay(new Array[Byte](numBytes))
         readed <- recv(buf, numBytes, MSG_WAITALL)
-      } yield Chunk.array(toArray(buf, readed))
+      } yield if (readed > 0) Chunk.array(toArray(buf, readed)) else Chunk.empty
     }
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
