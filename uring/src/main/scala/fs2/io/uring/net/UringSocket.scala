@@ -63,7 +63,6 @@ private[net] final class UringSocket[F[_]](
     readSemaphore.permit.surround {
       for {
         buf <- buffer.get(numBytes)
-        bytes <- F.delay(new Array[Byte](numBytes))
         readed <- recv(buf, numBytes, MSG_WAITALL)
       } yield if (readed > 0) Chunk.array(toArray(buf, readed)) else Chunk.empty
     }

@@ -37,7 +37,7 @@ private[net] final class ResizableBuffer[F[_]] private (
       ptr = realloc(ptr, size.toUInt)
       this.size = size
       if (ptr == null)
-        F.raiseError(new RuntimeException(s"realloc: ${errno}"))
+        F.raiseError[Ptr[Byte]](new RuntimeException(s"realloc: ${errno}"))
       else F.pure(ptr)
     }
   }.flatten

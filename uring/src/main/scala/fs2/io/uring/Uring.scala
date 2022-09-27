@@ -19,6 +19,7 @@ package fs2.io.uring
 import cats.effect.kernel.Async
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancel
+import cats.effect.kernel.Resource
 import cats.syntax.all._
 import cats.~>
 import fs2.io.uring.unsafe.UringExecutorScheduler
@@ -26,7 +27,6 @@ import fs2.io.uring.unsafe.uring._
 import fs2.io.uring.unsafe.uringOps._
 
 import scala.scalanative.unsafe.Ptr
-import cats.effect.kernel.Resource
 
 private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
 
