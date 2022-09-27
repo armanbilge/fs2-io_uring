@@ -20,6 +20,7 @@ package uring
 package net
 
 import cats.effect.kernel.Async
+import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
 import cats.effect.std.Semaphore
 import cats.syntax.all._
@@ -40,6 +41,7 @@ private[net] final class UringSocket[F[_]](
     ring: Uring[F],
     fd: Int,
     _remoteAddress: SocketAddress[IpAddress],
+    buffer: ResizableBuffer[F],
     defaultReadSize: Int,
     readSemaphore: Semaphore[F],
     writeSemaphore: Semaphore[F]
@@ -47,29 +49,29 @@ private[net] final class UringSocket[F[_]](
     extends Socket[F] {
 
   private[this] def recv(bytes: Ptr[Byte], maxBytes: Int, flags: Int): F[Int] =
-    ring(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
+    ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
       for {
-        bytes <- F.delay(new Array[Byte](maxBytes))
-        readed <- recv(toPtr(bytes), maxBytes, 0)
-      } yield Option.when(readed > 0)(Chunk.array(bytes, 0, readed))
+        buf <- buffer.get(maxBytes)
+        readed <- recv(buf, maxBytes, 0)
+      } yield Option.when(readed > 0)(Chunk.array(toArray(buf, readed)))
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
     readSemaphore.permit.surround {
       for {
-        bytes <- F.delay(new Array[Byte](numBytes))
-        readed <- recv(toPtr(bytes), numBytes, MSG_WAITALL)
-      } yield Chunk.array(bytes, 0, readed)
+        buf <- buffer.get(numBytes)
+        readed <- recv(buf, numBytes, MSG_WAITALL)
+      } yield if (readed > 0) Chunk.array(toArray(buf, readed)) else Chunk.empty
     }
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 0)).void
+  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0)).void
 
-  def endOfOutput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 1)).void
+  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1)).void
 
   def isOpen: F[Boolean] = F.pure(true)
 
@@ -81,7 +83,8 @@ private[net] final class UringSocket[F[_]](
     writeSemaphore.permit.surround {
       val slice = bytes.toArraySlice
       val ptr = toPtr(slice.values) + slice.offset.toLong
-      ring(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
+      ring
+        .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
         .as(slice) // to keep in scope of gc
         .void
     }
@@ -94,8 +97,10 @@ private[net] object UringSocket {
 
   def apply[F[_]](ring: Uring[F], fd: Int, remote: SocketAddress[IpAddress])(implicit
       F: Async[F]
-  ): F[UringSocket[F]] =
-    (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, 8192, _, _))
+  ): Resource[F, UringSocket[F]] =
+    ResizableBuffer(8192).evalMap { buf =>
+      (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
+    }
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
     F.delay {

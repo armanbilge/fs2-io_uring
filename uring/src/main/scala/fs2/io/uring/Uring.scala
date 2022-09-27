@@ -19,6 +19,7 @@ package fs2.io.uring
 import cats.effect.kernel.Async
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancel
+import cats.effect.kernel.Resource
 import cats.syntax.all._
 import cats.~>
 import fs2.io.uring.unsafe.UringExecutorScheduler
@@ -29,7 +30,15 @@ import scala.scalanative.unsafe.Ptr
 
 private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
 
-  def apply(prep: Ptr[io_uring_sqe] => Unit): F[Int] =
+  private[this] val noopRelease: Int => F[Unit] = _ => F.unit
+
+  def call(prep: Ptr[io_uring_sqe] => Unit): F[Int] =
+    exec(prep)(noopRelease)
+
+  def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): Resource[F, Int] =
+    Resource.makeFull[F, Int](poll => poll(exec(prep)(release(_))))(release(_))
+
+  private def exec(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): F[Int] =
     F.cont {
       new Cont[F, Int, Int] {
         def apply[G[_]](implicit
@@ -44,8 +53,17 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
 
             lift(submit)
               .flatMap { addr =>
-                // if cannot cancel, fallback to get
-                G.onCancel(poll(get), lift(cancel(addr)).ifM(G.unit, get.void))
+                G.onCancel(
+                  poll(get),
+                  lift(cancel(addr)).ifM(
+                    G.unit,
+                    // if cannot cancel, fallback to get
+                    get.flatMap { rtn =>
+                      if (rtn < 0) G.raiseError(IOExceptionHelper(-rtn))
+                      else lift(release(rtn))
+                    }
+                  )
+                )
               }
               .flatTap(e => G.raiseWhen(e < 0)(IOExceptionHelper(-e)))
           }

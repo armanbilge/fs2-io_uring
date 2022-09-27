@@ -16,12 +16,20 @@
 
 package fs2.io.uring.unsafe
 
-import scala.scalanative.unsafe._
+import scala.scalanative.libc.string._
 import scala.scalanative.runtime.ByteArray
+import scala.scalanative.unsafe._
+import scala.scalanative.unsigned._
 
 private[uring] object util {
 
   def toPtr(bytes: Array[Byte]): Ptr[Byte] =
     bytes.asInstanceOf[ByteArray].at(0)
+
+  def toArray(ptr: Ptr[Byte], length: Int): Array[Byte] = {
+    val bytes = new Array[Byte](length)
+    memcpy(toPtr(bytes), ptr, length.toUInt)
+    bytes
+  }
 
 }

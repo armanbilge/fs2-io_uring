@@ -212,4 +212,10 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
+  test("accept is cancelable") {
+    sg.serverResource().use { case (_, clients) =>
+      clients.compile.drain.timeoutTo(100.millis, IO.unit)
+    }
+  }
+
 }

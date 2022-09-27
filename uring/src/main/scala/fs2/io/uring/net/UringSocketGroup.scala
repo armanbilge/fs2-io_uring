@@ -39,13 +39,13 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
     Resource.eval(Uring[F]).flatMap { implicit ring =>
       Resource.eval(to.resolve).flatMap { address =>
-        openSocket(address.host.isInstanceOf[Ipv4Address]).evalMap { fd =>
-          SocketAddressHelpers.allocateSockaddr.use { case (addr, len) =>
-            F.delay(SocketAddressHelpers.toSockaddr(address, addr, len)) *>
-              ring(io_uring_prep_connect(_, fd, addr, !len)) *>
-              UringSocket(ring, fd, address)
-          }
-
+        openSocket(address.host.isInstanceOf[Ipv4Address]).flatMap { fd =>
+          Resource.eval {
+            SocketAddressHelpers.allocateSockaddr.use { case (addr, len) =>
+              F.delay(SocketAddressHelpers.toSockaddr(address, addr, len)) *>
+                ring.call(io_uring_prep_connect(_, fd, addr, !len))
+            }
+          } *> UringSocket(ring, fd, address)
         }
       }
     }
@@ -91,24 +91,23 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
         sockets = Stream
           .resource(SocketAddressHelpers.allocateSockaddr)
           .flatMap { case (addr, len) =>
-            Stream.repeatEval {
-              val acceptF =
-                F.delay(!len = sizeof[sockaddr_in6].toUInt) *>
-                  ring(io_uring_prep_accept(_, fd, addr, len, 0))
+            Stream.resource {
+              val accept = Resource.eval(F.delay(!len = sizeof[sockaddr_in6].toUInt)) *>
+                ring.bracket(io_uring_prep_accept(_, fd, addr, len, 0))(closeSocket(_))
 
               val convert =
                 F.delay(SocketAddressHelpers.toSocketAddress(addr))
                   .flatMap(_.liftTo)
 
-              acceptF
+              accept
                 .flatMap { clientFd =>
-                  convert.flatMap { remoteAddress =>
+                  Resource.eval(convert).flatMap { remoteAddress =>
                     UringSocket(ring, clientFd, remoteAddress)
                   }
                 }
                 .attempt
                 .map(_.toOption)
-            }
+            }.repeat
           }
 
       } yield (localAddress, sockets.unNone)
@@ -118,9 +117,10 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     Resource.make[F, Int] {
       val domain = if (ipv4) AF_INET else AF_INET6
       F.delay(socket(domain, SOCK_STREAM, 0))
-    } { fd =>
-      ring(io_uring_prep_close(_, fd)).void
-    }
+    }(closeSocket(_))
+
+  private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
+    ring.call(io_uring_prep_close(_, fd)).void
 
 }
 
