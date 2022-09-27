@@ -50,7 +50,7 @@ class UringRuntimeSuite extends UringSuite {
   test("submission") {
     Uring[IO]
       .flatMap { ring =>
-        ring(io_uring_prep_nop(_))
+        ring.call(io_uring_prep_nop(_))
       }
       .assertEquals(0)
   }

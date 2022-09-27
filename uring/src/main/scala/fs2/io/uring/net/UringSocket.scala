@@ -49,7 +49,7 @@ private[net] final class UringSocket[F[_]](
     extends Socket[F] {
 
   private[this] def recv(bytes: Ptr[Byte], maxBytes: Int, flags: Int): F[Int] =
-    ring(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
+    ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
@@ -70,9 +70,9 @@ private[net] final class UringSocket[F[_]](
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 0)).void
+  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0)).void
 
-  def endOfOutput: F[Unit] = ring(io_uring_prep_shutdown(_, fd, 1)).void
+  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1)).void
 
   def isOpen: F[Boolean] = F.pure(true)
 
@@ -84,7 +84,8 @@ private[net] final class UringSocket[F[_]](
     writeSemaphore.permit.surround {
       val slice = bytes.toArraySlice
       val ptr = toPtr(slice.values) + slice.offset.toLong
-      ring(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
+      ring
+        .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
         .as(slice) // to keep in scope of gc
         .void
     }

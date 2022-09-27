@@ -43,7 +43,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
           Resource.eval {
             SocketAddressHelpers.allocateSockaddr.use { case (addr, len) =>
               F.delay(SocketAddressHelpers.toSockaddr(address, addr, len)) *>
-                ring(io_uring_prep_connect(_, fd, addr, !len))
+                ring.call(io_uring_prep_connect(_, fd, addr, !len))
             }
           } *> UringSocket(ring, fd, address)
         }
@@ -92,12 +92,8 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
           .resource(SocketAddressHelpers.allocateSockaddr)
           .flatMap { case (addr, len) =>
             Stream.resource {
-              val accept = Resource.makeFull[F, Int] { poll =>
-                poll(
-                  F.delay(!len = sizeof[sockaddr_in6].toUInt) *>
-                    ring(io_uring_prep_accept(_, fd, addr, len, 0))
-                )
-              }(closeSocket(_))
+              val accept = Resource.eval(F.delay(!len = sizeof[sockaddr_in6].toUInt)) *>
+                ring.bracket(io_uring_prep_accept(_, fd, addr, len, 0))(closeSocket(_))
 
               val convert =
                 F.delay(SocketAddressHelpers.toSocketAddress(addr))
@@ -124,7 +120,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     }(closeSocket(_))
 
   private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
-    ring(io_uring_prep_close(_, fd)).void
+    ring.call(io_uring_prep_close(_, fd)).void
 
 }
 
