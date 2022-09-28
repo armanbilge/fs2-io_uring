@@ -82,7 +82,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
             if (listen(fd, 65535) == 0)
               F.unit
             else
-              F.raiseError(new IOException(errno.toString))
+              F.raiseError(IOExceptionHelper(errno))
           }.flatten
 
           bindF *> listenF *> UringSocket.getLocalAddress(fd)
@@ -126,6 +126,6 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
 
 object UringSocketGroup {
 
-  def apply[F[_]](implicit F: Async[F]): SocketGroup[F] = new UringSocketGroup
+  def apply[F[_]: Async]: SocketGroup[F] = new UringSocketGroup
 
 }
