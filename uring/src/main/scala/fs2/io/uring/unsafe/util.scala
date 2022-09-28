@@ -26,8 +26,10 @@ private[uring] object util {
   def toPtr(bytes: Array[Byte]): Ptr[Byte] =
     bytes.asInstanceOf[ByteArray].at(0)
 
-  def toPtr(bytes: Array[Byte], ptr: Ptr[Byte]): Unit =
+  def toPtr(bytes: Array[Byte], ptr: Ptr[Byte]): Unit = {
     memcpy(ptr, toPtr(bytes), bytes.length.toUInt)
+    ()
+  }
 
   def toArray(ptr: Ptr[Byte], length: Int): Array[Byte] = {
     val bytes = new Array[Byte](length)

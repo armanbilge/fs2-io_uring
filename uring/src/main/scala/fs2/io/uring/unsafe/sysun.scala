@@ -33,7 +33,7 @@ private[uring] object sysun {
 private[uring] object sysunOps {
   import sysun._
 
-  implicit final class sockaddr_unOps(sockaddr_un: Ptr[sockaddr_un]) extends AnyVal {
+  implicit final class sockaddr_unOps(val sockaddr_un: Ptr[sockaddr_un]) extends AnyVal {
     def sun_family: sa_family_t = sockaddr_un._1
     def sun_family_=(sun_family: sa_family_t): Unit = sockaddr_un._1 = sun_family
     def sun_path: CArray[CChar, _108] = sockaddr_un._2

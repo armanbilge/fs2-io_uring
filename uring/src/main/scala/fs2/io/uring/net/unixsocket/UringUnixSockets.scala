@@ -68,7 +68,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
 
         _ <- Stream.eval {
           val bindF = toSockaddrUn(address.path).use { addr =>
-            F.delay {
+            F.delay[F[Unit]] {
               if (bind(fd, addr, sizeof[sockaddr_un].toUInt) == 0)
                 F.unit
               else
@@ -101,17 +101,18 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
     }
 
   private def toSockaddrUn(path: String): Resource[F, Ptr[sockaddr]] =
-    Resource.make(F.delay(Zone.open()))(z => F.delay(z.close())).evalMap { implicit z =>
-      val pathBytes = path.getBytes
-      if (pathBytes.length > 107)
-        F.raiseError(new IllegalArgumentException(s"Path too long: $path"))
-      else
-        F.delay {
-          val addr = alloc[sockaddr_un]()
-          addr.sun_family = AF_UNIX.toUShort
-          toPtr(pathBytes, addr.sun_path.at(0))
-          addr.asInstanceOf[Ptr[sockaddr]]
-        }
+    Resource.make(F.delay(Zone.open()))(z => F.delay(z.close())).evalMap[Ptr[sockaddr]] {
+      implicit z =>
+        val pathBytes = path.getBytes
+        if (pathBytes.length > 107)
+          F.raiseError(new IllegalArgumentException(s"Path too long: $path"))
+        else
+          F.delay {
+            val addr = alloc[sockaddr_un]()
+            addr.sun_family = AF_UNIX.toUShort
+            toPtr(pathBytes, addr.sun_path.at(0))
+            addr.asInstanceOf[Ptr[sockaddr]]
+          }
     }
 
   private def openSocket(implicit ring: Uring[F]): Resource[F, Int] =
