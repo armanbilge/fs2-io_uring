@@ -27,13 +27,14 @@ import fs2.io.file.Path
 import fs2.io.net.Socket
 import fs2.io.net.unixsocket.UnixSocketAddress
 import fs2.io.net.unixsocket.UnixSockets
+import fs2.io.uring.unsafe.syssocket._
 import fs2.io.uring.unsafe.sysun._
 import fs2.io.uring.unsafe.sysunOps._
 import fs2.io.uring.unsafe.uring._
 import fs2.io.uring.unsafe.util._
 
 import scala.scalanative.libc.errno._
-import scala.scalanative.posix.sys.socket._
+import scala.scalanative.posix.sys.socket.{bind => _, _}
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -65,7 +66,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
 
         fd <- Stream.resource(openSocket)
 
-        localAddress <- Stream.eval {
+        _ <- Stream.eval {
           val bindF = toSockaddrUn(address.path).use { addr =>
             F.delay {
               if (bind(fd, addr, sizeof[sockaddr_un].toUInt) == 0)
@@ -82,7 +83,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
               F.raiseError(IOExceptionHelper(errno))
           }.flatten
 
-          bindF *> listenF *> UringSocket.getLocalAddress(fd)
+          bindF *> listenF
         }
 
         socket <- Stream
