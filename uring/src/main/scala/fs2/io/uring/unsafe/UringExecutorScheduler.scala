@@ -22,6 +22,7 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Set
 import scala.concurrent.duration._
+import scala.scalanative.posix.errno._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -55,8 +56,10 @@ private[uring] final class UringExecutorScheduler(
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
     else {
 
-      if (timeoutIsZero) {
-        if (pendingSubmissions) io_uring_submit(ring)
+      var rtn = if (timeoutIsZero) {
+        if (pendingSubmissions)
+          io_uring_submit(ring)
+        else 0
       } else {
 
         val timeoutSpec =
@@ -78,27 +81,42 @@ private[uring] final class UringExecutorScheduler(
         }
       }
 
-      var cqes = stackalloc[Ptr[io_uring_cqe]](maxEvents.toLong)
-      val filledCount = io_uring_peek_batch_cqe(ring, cqes, maxEvents.toUInt).toInt
+      val cqes = stackalloc[Ptr[io_uring_cqe]](maxEvents.toLong)
+      processCqes(cqes)
 
-      var i = 0
-      while (i < filledCount) {
-        val cqe = !cqes
-
-        val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
-        cb(Right(cqe.res))
-        callbacks.remove(cb)
-
-        i += 1
-        cqes += 1
+      if (pendingSubmissions && rtn == -EBUSY) {
+        // submission failed, so try again
+        rtn = io_uring_submit(ring)
+        while (rtn == -EBUSY) {
+          processCqes(cqes)
+          rtn = io_uring_submit(ring)
+        }
       }
-
-      io_uring_cq_advance(ring, filledCount.toUInt)
 
       pendingSubmissions = false
 
       !callbacks.isEmpty()
     }
+  }
+
+  private[this] def processCqes(_cqes: Ptr[Ptr[io_uring_cqe]]): Unit = {
+    var cqes = _cqes
+
+    val filledCount = io_uring_peek_batch_cqe(ring, cqes, maxEvents.toUInt).toInt
+
+    var i = 0
+    while (i < filledCount) {
+      val cqe = !cqes
+
+      val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
+      cb(Right(cqe.res))
+      callbacks.remove(cb)
+
+      i += 1
+      cqes += 1
+    }
+
+    io_uring_cq_advance(ring, filledCount.toUInt)
   }
 
 }
