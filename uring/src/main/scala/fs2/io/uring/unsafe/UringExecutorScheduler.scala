@@ -127,10 +127,12 @@ private[uring] object UringExecutorScheduler {
     implicit val zone = Zone.open()
     val ring = alloc[io_uring]()
 
+    val flags = IORING_SETUP_SUBMIT_ALL
+
     // the submission queue size need not exceed pollEvery
     // every submission is accompanied by async suspension,
     // and at most pollEvery suspensions can happen per iteration
-    io_uring_queue_init(pollEvery.toUInt, ring, 0.toUInt)
+    io_uring_queue_init(pollEvery.toUInt, ring, flags.toUInt)
 
     val cleanup = () => {
       io_uring_queue_exit(ring)
