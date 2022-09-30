@@ -55,9 +55,9 @@ private[uring] final class UringExecutorScheduler(
       false // nothing to do here. refer to scaladoc on PollingExecutorScheduler#poll
     else {
 
-      if (pendingSubmissions) io_uring_submit(ring)
-
-      if (!timeoutIsZero) {
+      if (timeoutIsZero) {
+        if (pendingSubmissions) io_uring_submit(ring)
+      } else {
 
         val timeoutSpec =
           if (timeoutIsInfinite) {
@@ -71,7 +71,11 @@ private[uring] final class UringExecutorScheduler(
           }
 
         val cqe = stackalloc[Ptr[io_uring_cqe]]()
-        io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
+        if (pendingSubmissions) {
+          io_uring_submit_and_wait_timeout(ring, cqe, 1.toUInt, timeoutSpec, null)
+        } else {
+          io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
+        }
       }
 
       var cqes = stackalloc[Ptr[io_uring_cqe]](maxEvents.toLong)
