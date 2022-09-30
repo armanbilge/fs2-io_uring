@@ -17,6 +17,7 @@
 package fs2.io.uring.unsafe
 
 import scala.scalanative.libc.stddef._
+import scala.scalanative.posix.signal.sigset_t
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
@@ -74,6 +75,14 @@ private[uring] object uring {
   def io_uring_get_sqe(ring: Ptr[io_uring]): Ptr[io_uring_sqe] = extern
 
   def io_uring_submit(ring: Ptr[io_uring]): CInt = extern
+
+  def io_uring_submit_and_wait_timeout(
+      ring: Ptr[io_uring],
+      cqe_ptr: Ptr[Ptr[io_uring_cqe]],
+      wait_nr: CUnsignedInt,
+      ts: Ptr[__kernel_timespec],
+      sigmask: Ptr[sigset_t]
+  ): CInt = extern
 
   def io_uring_wait_cqe_timeout(
       ring: Ptr[io_uring],
