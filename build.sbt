@@ -11,11 +11,16 @@ ThisBuild / crossScalaVersions := Seq("3.2.0", "2.13.9")
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 ThisBuild / githubWorkflowOSes := Seq("ubuntu-20.04", "ubuntu-22.04")
 
-ThisBuild / githubWorkflowBuildPreamble += {
+ThisBuild / githubWorkflowBuildPreamble ++= {
   val brew = "/home/linuxbrew/.linuxbrew/bin/brew"
-  WorkflowStep.Run(
-    List(s"$brew update", s"$brew install liburing"),
-    name = Some("Install liburing")
+  List(
+    WorkflowStep.Run(
+      List("uname -a")
+    ),
+    WorkflowStep.Run(
+      List(s"$brew update", s"$brew install liburing"),
+      name = Some("Install liburing")
+    )
   )
 }
 
