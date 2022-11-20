@@ -1,4 +1,4 @@
-ThisBuild / tlBaseVersion := "0.0"
+ThisBuild / tlBaseVersion := "0.1"
 
 ThisBuild / organization := "com.armanbilge"
 ThisBuild / organizationName := "Arman Bilge"
