@@ -35,4 +35,6 @@ Future releases will add support for datagram sockets and non-blocking (!) file 
 
 ## Versioning and compatibility
 
-Because this library implements FS2 sealed interfaces, but is released and versioned independently, it is not covered by FS2's usual guarantee of backwards-binary-compatibility. You should not depend on it in libraries. Instead, make sure to expose the `Network` and `UnixSockets` constraints of your library, so that users can substitute the fs2-io_uring implementations of these APIs in their applications.
+Because this library implements FS2 sealed interfaces, but is released and versioned independently, it is not covered by FS2's usual guarantee of backwards-binary-compatibility. Specifically, updating your FS2 version may cause fs2-io_uring to break.
+
+Therefore, you should not add it as a dependency in libraries. Instead, make sure to expose the `Network` and `UnixSockets` constraints of your library, so that users can substitute the fs2-io_uring implementations of these APIs in their applications.
