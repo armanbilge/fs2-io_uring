@@ -31,7 +31,7 @@ Finally, you can import from `fs2.io.uring.implicits._` to get an implicit io_ur
 - `UringSocketGroup`
 - `UringUnixSockets`
 
-Future releases will add support for datagram sockets and asynchronous (!) file I/O.
+Future releases will add support for datagram sockets and non-blocking (!) file I/O.
 
 ## Versioning and compatibility
 
