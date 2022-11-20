@@ -126,6 +126,6 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
 
 object UringSocketGroup {
 
-  def apply[F[_]: Async]: SocketGroup[F] = new UringSocketGroup
+  def apply[F[_]: Async: Dns]: SocketGroup[F] = new UringSocketGroup
 
 }
