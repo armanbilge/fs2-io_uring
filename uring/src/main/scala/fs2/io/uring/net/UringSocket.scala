@@ -82,7 +82,7 @@ private[net] final class UringSocket[F[_]](
   def write(bytes: Chunk[Byte]): F[Unit] =
     writeSemaphore.permit.surround {
       val slice = bytes.toArraySlice
-      val ptr = toPtr(slice.values) + slice.offset.toLong
+      val ptr = slice.values.at(0) + slice.offset.toLong
       ring
         .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
         .as(slice) // to keep in scope of gc
