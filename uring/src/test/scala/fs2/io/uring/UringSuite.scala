@@ -16,11 +16,16 @@
 
 package fs2.io.uring
 
-import fs2.io.uring.unsafe.UringRuntime
+import cats.effect.unsafe.IORuntime
+import cats.effect.unsafe.IORuntimeConfig
+import fs2.io.uring.unsafe.UringSystem
 import munit.CatsEffectSuite
 
 abstract class UringSuite extends CatsEffectSuite {
 
-  override def munitIORuntime = UringRuntime.global
+  override def munitIORuntime = {
+    val loop = IORuntime.createEventLoop(UringSystem)
+    IORuntime(loop, loop, loop, () => (), IORuntimeConfig())
+  }
 
 }

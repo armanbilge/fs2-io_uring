@@ -16,6 +16,7 @@
 
 package fs2.io.uring.net
 
+import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import com.comcast.ip4s.Dns
 import com.comcast.ip4s.Host
@@ -48,6 +49,6 @@ private[net] final class UringNetwork[F[_]](
 }
 
 object UringNetwork {
-  def apply[F[_]: Async: Dns]: Network[F] =
+  def apply[F[_]: Async: Dns: LiftIO]: Network[F] =
     new UringNetwork(new UringSocketGroup[F], TLSContext.Builder.forAsync[F])
 }
