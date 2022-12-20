@@ -40,7 +40,8 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  def makePoller(ec: ExecutionContext, data: () => PollData): Poller = ???
+  def makePoller(ec: ExecutionContext, data: () => PollData): Poller =
+    new Poller(ec, data)
 
   def makePollData(): PollData = {
     val ring = util.malloc[io_uring]()
