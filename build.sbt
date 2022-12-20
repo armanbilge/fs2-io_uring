@@ -1,4 +1,4 @@
-ThisBuild / tlBaseVersion := "0.1"
+ThisBuild / tlBaseVersion := "0.2"
 
 ThisBuild / organization := "com.armanbilge"
 ThisBuild / organizationName := "Arman Bilge"
@@ -24,6 +24,7 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
   )
 }
 
+val ceVersion = "3.5-9ba870f"
 val fs2Version = "3.4.0"
 val munitCEVersion = "2.0.0-M3"
 
@@ -40,6 +41,7 @@ lazy val uring = project
   .settings(
     name := "fs2-io_uring",
     libraryDependencies ++= Seq(
+      "org.typelevel" %%% "cats-effect" % ceVersion,
       "co.fs2" %%% "fs2-io" % fs2Version,
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test
     ),
