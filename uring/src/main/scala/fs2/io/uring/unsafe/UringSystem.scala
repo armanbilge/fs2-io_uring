@@ -18,10 +18,13 @@ package fs2.io.uring
 package unsafe
 
 import cats.~>
+import cats.effect.FileDescriptorPoller
+import cats.effect.FileDescriptorPollHandle
 import cats.effect.IO
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Resource
+import cats.effect.std.Semaphore
 import cats.effect.unsafe.PollingSystem
 import cats.syntax.all._
 
@@ -30,6 +33,7 @@ import java.util.IdentityHashMap
 import java.util.Set
 import scala.concurrent.ExecutionContext
 import scala.scalanative.posix.errno._
+import scala.scalanative.posix.pollEvents._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -62,7 +66,8 @@ object UringSystem extends PollingSystem {
     data.poll(nanos)
 
   final class Poller private[UringSystem] (ec: ExecutionContext, data: () => PollData)
-      extends Uring {
+      extends Uring
+      with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
     def call(prep: Ptr[io_uring_sqe] => Unit): IO[Int] =
@@ -109,6 +114,43 @@ object UringSystem extends PollingSystem {
         val sqe = data().getSqe(cb)
         io_uring_prep_cancel64(sqe, addr, 0)
       }.map(_ == 0) // true if we actually canceled
+
+    def registerFileDescriptor(
+        fd: Int,
+        reads: Boolean,
+        writes: Boolean
+    ): Resource[IO, FileDescriptorPollHandle] =
+      Resource.eval {
+        (Semaphore[IO](1), Semaphore[IO](1)).mapN { (readSemaphore, writeSemaphore) =>
+          new FileDescriptorPollHandle {
+
+            def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
+              readSemaphore.permit.surround {
+                a.tailRecM { a =>
+                  f(a).flatTap { r =>
+                    if (r.isRight)
+                      IO.unit
+                    else
+                      call(io_uring_prep_poll_add(_, fd, POLLIN.toUInt))
+                  }
+                }
+              }
+
+            def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
+              writeSemaphore.permit.surround {
+                a.tailRecM { a =>
+                  f(a).flatTap { r =>
+                    if (r.isRight)
+                      IO.unit
+                    else
+                      call(io_uring_prep_poll_add(_, fd, POLLOUT.toUInt))
+                  }
+                }
+              }
+          }
+
+        }
+      }
   }
 
   final class PollData private[UringSystem] (ring: Ptr[io_uring]) {

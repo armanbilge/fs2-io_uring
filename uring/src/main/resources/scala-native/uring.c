@@ -30,6 +30,11 @@ void fs2_io_uring_prep_connect(struct io_uring_sqe *sqe, int fd,
   io_uring_prep_connect(sqe, fd, addr, addrlen);
 }
 
+void fs2_io_uring_prep_poll_add(struct io_uring_sqe *sqe, int fd,
+                                unsigned int pollmask) {
+  io_uring_prep_poll_add(sqe, fd, pollmask);
+}
+
 void fs2_io_uring_prep_recv(struct io_uring_sqe *sqe, int sockfd, void *buf,
                             size_t len, int flags) {
   io_uring_prep_recv(sqe, sockfd, buf, len, flags);
