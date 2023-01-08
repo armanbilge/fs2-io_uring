@@ -15,6 +15,7 @@ jobs:
             ./configure
             make
             sudo make install
+      - run: sudo apt-get install llvm
       - run: sbt Test/nativeLink
       - run: sbt test
 
