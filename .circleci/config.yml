@@ -2,6 +2,9 @@ version: 2.1
 
 jobs:
   test-arm:
+    parameters:
+      scala-version:
+        type: string
     machine:
       image: ubuntu-2004:current
     resource_class: arm.medium
@@ -19,9 +22,12 @@ jobs:
             ./configure
             make
             sudo make install
-      - run: sbt test
+      - run: sbt ++ << parameters.scala-version >> test
 
 workflows:
   ci:
     jobs:
-      - test-arm
+      - test-arm:
+          matrix:
+            parameters:
+              scala-version: ["2.13", "3"]
