@@ -9,10 +9,12 @@ jobs:
       - checkout
       - run: uname -a
       - run:
-          command: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
-          environment:
-            HOMEBREW_INSTALL_FROM_API: 1
-            NONINTERACTIVE: 1
+          command: |
+            git clone https://github.com/axboe/liburing.git
+            cd liburing
+            ./configure
+            make
+            make install
       - run: sbt Test/nativeLink
       - run: sbt test
 
