@@ -16,7 +16,6 @@ jobs:
             make
             sudo make install
       - run: sudo apt-get install clang
-      - run: sbt Test/nativeLink
       - run: sbt test
 
 workflows:
