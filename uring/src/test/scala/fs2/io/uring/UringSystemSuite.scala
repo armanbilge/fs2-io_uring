@@ -17,25 +17,17 @@
 package fs2.io.uring
 
 import cats.effect.IO
-import cats.effect.LiftIO
-import cats.effect.kernel.Resource
-import cats.syntax.all._
 import fs2.io.uring.unsafe.uring._
 
-import scala.scalanative.unsafe.Ptr
+class UringSystemSuite extends UringSuite {
 
-abstract class Uring private[uring] {
-
-  def call(prep: Ptr[io_uring_sqe] => Unit): IO[Int]
-
-  def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): Resource[IO, Int]
-}
-
-object Uring {
-
-  def get[F[_]: LiftIO]: F[Uring] =
-    IO.poller[Uring]
-      .flatMap(_.liftTo[IO](new RuntimeException("No UringSystem installed")))
-      .to
+  test("submission") {
+    Uring
+      .get[IO]
+      .flatMap { ring =>
+        ring.call(io_uring_prep_nop(_))
+      }
+      .assertEquals(0)
+  }
 
 }

@@ -125,6 +125,13 @@ private[uring] object uring {
       addrlen: socklen_t
   ): Unit = extern
 
+  @name("fs2_io_uring_prep_poll_add")
+  def io_uring_prep_poll_add(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      pollmask: CUnsignedInt
+  ): Unit = extern
+
   @name("fs2_io_uring_prep_recv")
   def io_uring_prep_recv(
       sqe: Ptr[io_uring_sqe],

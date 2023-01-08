@@ -19,6 +19,8 @@ package io.uring
 package net
 package unixsocket
 
+import cats.effect.IO
+import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.syntax.all._
@@ -38,15 +40,15 @@ import scala.scalanative.posix.sys.socket.{bind => _, _}
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
-private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
+private[net] final class UringUnixSockets[F[_]: Files: LiftIO](implicit F: Async[F])
     extends UnixSockets[F] {
 
   def client(address: UnixSocketAddress): Resource[F, Socket[F]] =
-    Resource.eval(Uring[F]).flatMap { implicit ring =>
-      openSocket.flatMap { fd =>
+    Resource.eval(Uring.get[F]).flatMap { implicit ring =>
+      openSocket(ring).flatMap { fd =>
         Resource.eval {
           toSockaddrUn(address.path).use { addr =>
-            ring.call(io_uring_prep_connect(_, fd, addr, sizeof[sockaddr_un].toUInt))
+            ring.call(io_uring_prep_connect(_, fd, addr, sizeof[sockaddr_un].toUInt)).to
           }
         } *> UringSocket(ring, fd, null)
       }
@@ -57,14 +59,14 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
       deleteIfExists: Boolean,
       deleteOnClose: Boolean
   ): Stream[F, Socket[F]] =
-    Stream.eval(Uring[F]).flatMap { implicit ring =>
+    Stream.eval(Uring.get[F]).flatMap { ring =>
       for {
 
         _ <- Stream.bracket(Files[F].deleteIfExists(Path(address.path)).whenA(deleteIfExists)) {
           _ => Files[F].deleteIfExists(Path(address.path)).whenA(deleteOnClose)
         }
 
-        fd <- Stream.resource(openSocket)
+        fd <- Stream.resource(openSocket(ring))
 
         _ <- Stream.eval {
           val bindF = toSockaddrUn(address.path).use { addr =>
@@ -88,7 +90,9 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
 
         socket <- Stream
           .resource {
-            val accept = ring.bracket(io_uring_prep_accept(_, fd, null, null, 0))(closeSocket(_))
+            val accept = ring
+              .bracket(io_uring_prep_accept(_, fd, null, null, 0))(closeSocket(ring, _))
+              .mapK(LiftIO.liftK)
             accept
               .flatMap(UringSocket(ring, _, null))
               .attempt
@@ -115,18 +119,18 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
           }
     }
 
-  private def openSocket(implicit ring: Uring[F]): Resource[F, Int] =
+  private def openSocket(ring: Uring): Resource[F, Int] =
     Resource.make[F, Int] {
       F.delay(socket(AF_UNIX, SOCK_STREAM, 0))
-    }(closeSocket(_))
+    }(closeSocket(ring, _).to)
 
-  private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
+  private def closeSocket(ring: Uring, fd: Int): IO[Unit] =
     ring.call(io_uring_prep_close(_, fd)).void
 
 }
 
 object UringUnixSockets {
 
-  def apply[F[_]: Async: Files]: UringUnixSockets[F] = new UringUnixSockets
+  def apply[F[_]: Async: Files: LiftIO]: UringUnixSockets[F] = new UringUnixSockets
 
 }

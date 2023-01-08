@@ -16,6 +16,7 @@
 
 package fs2.io.uring
 
+import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import com.comcast.ip4s.Dns
 import fs2.io.net.Network
@@ -23,6 +24,6 @@ import fs2.io.uring.net.UringNetwork
 
 object implicits {
 
-  @inline implicit def network[F[_]: Async: Dns]: Network[F] = UringNetwork[F]
+  @inline implicit def network[F[_]: Async: Dns: LiftIO]: Network[F] = UringNetwork[F]
 
 }
