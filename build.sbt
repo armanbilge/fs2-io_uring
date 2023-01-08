@@ -30,7 +30,7 @@ val munitCEVersion = "2.0.0-M3"
 ThisBuild / nativeConfig ~= { c =>
   val arch = System.getProperty("os.arch").toLowerCase()
   if (Set("arm64", "aarch64").contains(arch))
-    c
+    c.withLinkingOptions(c.linkingOptions :+ "-luring")
   else
     c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
       .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
