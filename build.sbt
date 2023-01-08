@@ -18,7 +18,7 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
       List("uname -a")
     ),
     WorkflowStep.Run(
-      List(s"$brew update", s"$brew install liburing"),
+      List(s"$brew install liburing"),
       name = Some("Install liburing")
     )
   )
