@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  test:
+  test-arm:
     machine:
       image: ubuntu-2004:current
     resource_class: arm.medium
@@ -9,16 +9,19 @@ jobs:
       - checkout
       - run: uname -a
       - run:
+          name: Install clang
+          command: sudo apt-get install clang
+      - run:
+          name: Install liburing
           command: |
             git clone https://github.com/axboe/liburing.git
             cd liburing
             ./configure
             make
             sudo make install
-      - run: sudo apt-get install clang
       - run: sbt test
 
 workflows:
   ci:
     jobs:
-      - test
+      - test-arm
