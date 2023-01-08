@@ -22,7 +22,7 @@ jobs:
             ./configure
             make
             sudo make install
-      - run: sbt ++ << parameters.scala-version >> test
+      - run: sbt '++ << parameters.scala-version >>' test
 
 workflows:
   ci:
