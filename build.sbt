@@ -28,8 +28,12 @@ val fs2Version = "3.4.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
-  c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
-    .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
+  val arch = System.getProperty("os.arch").toLowerCase()
+  if (Set("arm64", "aarch64").contains(arch))
+    c.withLinkingOptions(c.linkingOptions :+ "-luring")
+  else
+    c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
+      .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
 }
 
 lazy val root = tlCrossRootProject.aggregate(uring)
