@@ -24,7 +24,7 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
   )
 }
 
-val fs2Version = "3.4.0"
+val fs2Version = "3.5.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
