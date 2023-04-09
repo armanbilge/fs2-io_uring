@@ -21,6 +21,8 @@ import scala.scalanative.unsafe._
 
 @extern
 private[uring] object syssocket {
+  final val SOCK_NONBLOCK = 2048
+
   def bind(sockfd: CInt, addr: Ptr[sockaddr], addrlen: socklen_t): CInt =
     extern
 }

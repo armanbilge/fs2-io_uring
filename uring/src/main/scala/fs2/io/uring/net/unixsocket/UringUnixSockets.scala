@@ -88,7 +88,8 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
 
         socket <- Stream
           .resource {
-            val accept = ring.bracket(io_uring_prep_accept(_, fd, null, null, 0))(closeSocket(_))
+            val accept =
+              ring.bracket(io_uring_prep_accept(_, fd, null, null, SOCK_NONBLOCK))(closeSocket(_))
             accept
               .flatMap(UringSocket(ring, _, null))
               .attempt
@@ -117,7 +118,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
 
   private def openSocket(implicit ring: Uring[F]): Resource[F, Int] =
     Resource.make[F, Int] {
-      F.delay(socket(AF_UNIX, SOCK_STREAM, 0))
+      F.delay(socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0))
     }(closeSocket(_))
 
   private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
