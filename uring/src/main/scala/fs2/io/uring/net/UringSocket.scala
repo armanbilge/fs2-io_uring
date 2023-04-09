@@ -80,14 +80,16 @@ private[net] final class UringSocket[F[_]](
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
   def write(bytes: Chunk[Byte]): F[Unit] =
-    writeSemaphore.permit.surround {
-      val slice = bytes.toArraySlice
-      val ptr = slice.values.at(0) + slice.offset.toLong
-      ring
-        .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
-        .as(slice) // to keep in scope of gc
-        .void
-    }
+    writeSemaphore.permit
+      .surround {
+        val slice = bytes.toArraySlice
+        val ptr = slice.values.at(0) + slice.offset.toLong
+        ring
+          .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
+          .as(slice) // to keep in scope of gc
+          .void
+      }
+      .unlessA(bytes.isEmpty)
 
   def writes: Pipe[F, Byte, Nothing] = _.chunks.foreach(write)
 
