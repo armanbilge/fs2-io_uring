@@ -27,6 +27,7 @@ import fs2.io.net.Socket
 import fs2.io.net.SocketGroup
 import fs2.io.net.SocketOption
 import fs2.io.uring.unsafe.netinetin._
+import fs2.io.uring.unsafe.syssocket.SOCK_NONBLOCK
 import fs2.io.uring.unsafe.uring._
 
 import scala.scalanative.libc.errno._
@@ -93,7 +94,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
           .flatMap { case (addr, len) =>
             Stream.resource {
               val accept = Resource.eval(F.delay(!len = sizeof[sockaddr_in6].toUInt)) *>
-                ring.bracket(io_uring_prep_accept(_, fd, addr, len, 0))(closeSocket(_))
+                ring.bracket(io_uring_prep_accept(_, fd, addr, len, SOCK_NONBLOCK))(closeSocket(_))
 
               val convert =
                 F.delay(SocketAddressHelpers.toSocketAddress(addr))
@@ -116,7 +117,7 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
     Resource.make[F, Int] {
       val domain = if (ipv4) AF_INET else AF_INET6
-      F.delay(socket(domain, SOCK_STREAM, 0))
+      F.delay(socket(domain, SOCK_STREAM | SOCK_NONBLOCK, 0))
     }(closeSocket(_))
 
   private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
