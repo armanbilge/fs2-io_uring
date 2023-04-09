@@ -224,4 +224,10 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
+  test("empty write") {
+    setup.use { case (_, clients) =>
+      clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
+    }
+  }
+
 }
