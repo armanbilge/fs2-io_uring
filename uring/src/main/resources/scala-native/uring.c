@@ -4,6 +4,10 @@ struct io_uring_sqe *fs2_io_uring_get_sqe(struct io_uring *ring) {
   return io_uring_get_sqe(ring);
 }
 
+void fs2_io_uring_sqe_set_flags(struct io_uring_sqe *sqe, unsigned flags) {
+  io_uring_sqe_set_flags(sqe, flags);
+}
+
 void fs2_io_uring_cq_advance(struct io_uring *ring, unsigned nr) {
   io_uring_cq_advance(ring, nr);
 }
@@ -28,6 +32,11 @@ void fs2_io_uring_prep_close(struct io_uring_sqe *sqe, int fd) {
 void fs2_io_uring_prep_connect(struct io_uring_sqe *sqe, int fd,
                                const struct sockaddr *addr, socklen_t addrlen) {
   io_uring_prep_connect(sqe, fd, addr, addrlen);
+}
+
+void fs2_io_uring_prep_poll_add(struct io_uring_sqe *sqe, int fd,
+                                unsigned int pollmask) {
+  io_uring_prep_poll_add(sqe, fd, pollmask);
 }
 
 void fs2_io_uring_prep_recv(struct io_uring_sqe *sqe, int sockfd, void *buf,

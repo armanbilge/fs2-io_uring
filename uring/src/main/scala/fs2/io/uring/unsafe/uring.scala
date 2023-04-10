@@ -25,6 +25,8 @@ import scala.scalanative.runtime.Intrinsics._
 
 @extern
 private[uring] object uring {
+  final val IOSQE_IO_LINK = 1 << 2
+
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
   type __s32 = CInt
@@ -103,6 +105,9 @@ private[uring] object uring {
   @name("fs2_io_uring_get_sqe")
   def io_uring_get_sqe(ring: Ptr[io_uring]): Ptr[io_uring_sqe] = extern
 
+  @name("fs2_io_uring_sqe_set_flags")
+  def io_uring_sqe_set_flags(sqe: Ptr[io_uring_sqe], flags: CUnsignedInt): Unit = extern
+
   def io_uring_submit(ring: Ptr[io_uring]): CInt = extern
 
   def io_uring_submit_and_wait_timeout(
@@ -152,6 +157,13 @@ private[uring] object uring {
       fd: CInt,
       addr: Ptr[sockaddr],
       addrlen: socklen_t
+  ): Unit = extern
+
+  @name("fs2_io_uring_prep_poll_add")
+  def io_uring_prep_poll_add(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      pollmask: CUnsignedInt
   ): Unit = extern
 
   @name("fs2_io_uring_prep_recv")

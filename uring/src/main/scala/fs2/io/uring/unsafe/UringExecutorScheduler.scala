@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-package fs2.io.uring.unsafe
+package fs2.io.uring
+package unsafe
 
 import cats.effect.unsafe.PollingExecutorScheduler
 
@@ -42,10 +43,8 @@ private[uring] final class UringExecutorScheduler(
   def getSqe(cb: Either[Throwable, Int] => Unit): Ptr[io_uring_sqe] = {
     pendingSubmissions = true
     val sqe = io_uring_get_sqe(ring)
-    if (cb ne null) {
-      io_uring_sqe_set_data(sqe, cb)
-      callbacks.add(cb)
-    }
+    io_uring_sqe_set_data(sqe, cb)
+    callbacks.add(cb)
     sqe
   }
 
@@ -111,10 +110,8 @@ private[uring] final class UringExecutorScheduler(
       val cqe = !cqes
 
       val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
-      if (cb ne null) {
-        cb(Right(cqe.res))
-        callbacks.remove(cb)
-      }
+      cb(Right(cqe.res))
+      callbacks.remove(cb)
 
       i += 1
       cqes += 1

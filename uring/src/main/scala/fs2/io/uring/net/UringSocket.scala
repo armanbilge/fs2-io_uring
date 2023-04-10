@@ -33,6 +33,7 @@ import fs2.io.uring.unsafe.util._
 
 import java.io.IOException
 import scala.scalanative.libc.errno._
+import scala.scalanative.posix.pollEvents._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
@@ -48,23 +49,37 @@ private[net] final class UringSocket[F[_]](
 )(implicit F: Async[F])
     extends Socket[F] {
 
-  private[this] def recv(bytes: Ptr[Byte], maxBytes: Int, flags: Int): F[Int] =
-    ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
+  private[this] def recv(bytes: Ptr[Byte], maxBytes: Int): F[Int] =
+    ring.call { (pollSqe, readSqe) =>
+      io_uring_prep_poll_add(pollSqe, fd, POLLIN.toUInt)
+      io_uring_sqe_set_flags(pollSqe, IOSQE_IO_LINK.toUInt)
+      io_uring_prep_recv(readSqe, fd, bytes, maxBytes.toULong, 0)
+    }
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readSemaphore.permit.surround {
       for {
         buf <- buffer.get(maxBytes)
-        readed <- recv(buf, maxBytes, 0)
+        readed <- recv(buf, maxBytes)
       } yield Option.when(readed > 0)(Chunk.array(toArray(buf, readed)))
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
     readSemaphore.permit.surround {
-      for {
-        buf <- buffer.get(numBytes)
-        readed <- recv(buf, numBytes, MSG_WAITALL)
-      } yield if (readed > 0) Chunk.array(toArray(buf, readed)) else Chunk.empty
+      buffer.get(numBytes).flatMap { buf =>
+        def go(i: Int): F[Int] =
+          recv(buf + i.toLong, numBytes - i).flatMap { readed =>
+            if (readed > 0) {
+              val total = i + readed
+              if (total < numBytes) go(total)
+              else F.pure(total)
+            } else F.pure(i)
+          }
+
+        go(0).flatMap { readed =>
+          if (readed > 0) F.delay(Chunk.array(toArray(buf, readed))) else F.pure(Chunk.empty)
+        }
+      }
     }
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
@@ -85,7 +100,11 @@ private[net] final class UringSocket[F[_]](
         val slice = bytes.toArraySlice
         val ptr = slice.values.at(0) + slice.offset.toLong
         ring
-          .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
+          .call { (pollSqe, writeSqe) =>
+            io_uring_prep_poll_add(pollSqe, fd, POLLOUT.toUInt)
+            io_uring_sqe_set_flags(pollSqe, IOSQE_IO_LINK.toUInt)
+            io_uring_prep_send(writeSqe, fd, ptr, slice.length.toULong, MSG_NOSIGNAL)
+          }
           .as(slice) // to keep in scope of gc
           .void
       }

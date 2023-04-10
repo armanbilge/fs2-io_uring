@@ -52,7 +52,9 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
       prep: (Ptr[io_uring_sqe], Ptr[io_uring_sqe]) => Unit
   )(release: Int => F[Unit]): F[Int] =
     submit { resume =>
-      val sqe1 = ring.getSqe(null)
+      val sqe1 = ring.getSqe { result =>
+        if (result.isLeft) resume(result) else ()
+      }
       val sqe2 = ring.getSqe(resume)
       prep(sqe1, sqe2)
       sqe1 // cancel via first sqe
