@@ -35,21 +35,39 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
   def call(prep: Ptr[io_uring_sqe] => Unit): F[Int] =
     exec(prep)(noopRelease)
 
+  def call(prep: (Ptr[io_uring_sqe], Ptr[io_uring_sqe]) => Unit): F[Int] =
+    exec(prep)(noopRelease)
+
   def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): Resource[F, Int] =
     Resource.makeFull[F, Int](poll => poll(exec(prep)(release(_))))(release(_))
 
   private def exec(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): F[Int] =
+    submit { resume =>
+      val sqe = ring.getSqe(resume)
+      prep(sqe)
+      sqe
+    }(release)
+
+  private def exec(
+      prep: (Ptr[io_uring_sqe], Ptr[io_uring_sqe]) => Unit
+  )(release: Int => F[Unit]): F[Int] =
+    submit { resume =>
+      val sqe1 = ring.getSqe(null)
+      val sqe2 = ring.getSqe(resume)
+      prep(sqe1, sqe2)
+      sqe1 // cancel via first sqe
+    }(release)
+
+  private def submit(
+      prep: (Either[Throwable, Int] => Unit) => Ptr[io_uring_sqe]
+  )(release: Int => F[Unit]): F[Int] =
     F.cont {
       new Cont[F, Int, Int] {
         def apply[G[_]](implicit
             G: MonadCancel[G, Throwable]
         ): (Either[Throwable, Int] => Unit, G[Int], F ~> G) => G[Int] = { (resume, get, lift) =>
           G.uncancelable { poll =>
-            val submit = F.delay {
-              val sqe = ring.getSqe(resume)
-              prep(sqe)
-              sqe.user_data
-            }
+            val submit = F.delay(prep(resume).user_data)
 
             lift(submit)
               .flatMap { addr =>

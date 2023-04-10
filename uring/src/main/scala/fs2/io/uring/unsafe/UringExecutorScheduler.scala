@@ -42,8 +42,10 @@ private[uring] final class UringExecutorScheduler(
   def getSqe(cb: Either[Throwable, Int] => Unit): Ptr[io_uring_sqe] = {
     pendingSubmissions = true
     val sqe = io_uring_get_sqe(ring)
-    io_uring_sqe_set_data(sqe, cb)
-    callbacks.add(cb)
+    if (cb ne null) {
+      io_uring_sqe_set_data(sqe, cb)
+      callbacks.add(cb)
+    }
     sqe
   }
 
@@ -109,8 +111,10 @@ private[uring] final class UringExecutorScheduler(
       val cqe = !cqes
 
       val cb = io_uring_cqe_get_data[Either[Exception, Int] => Unit](cqe)
-      cb(Right(cqe.res))
-      callbacks.remove(cb)
+      if (cb ne null) {
+        cb(Right(cqe.res))
+        callbacks.remove(cb)
+      }
 
       i += 1
       cqes += 1
@@ -127,10 +131,10 @@ private[uring] object UringExecutorScheduler {
     implicit val zone = Zone.open()
     val ring = alloc[io_uring]()
 
-    // the submission queue size need not exceed pollEvery
-    // every submission is accompanied by async suspension,
+    // the submission queue size need not exceed 2*pollEvery
+    // every submission uses at most 2 SQEs and involves async suspension
     // and at most pollEvery suspensions can happen per iteration
-    io_uring_queue_init(pollEvery.toUInt, ring, 0.toUInt)
+    io_uring_queue_init((2 * pollEvery).toUInt, ring, 0.toUInt)
 
     val cleanup = () => {
       io_uring_queue_exit(ring)
