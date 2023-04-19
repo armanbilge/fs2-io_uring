@@ -23,6 +23,7 @@ import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
 import cats.effect.std.Semaphore
+import cats.effect.std.Mutex
 import cats.syntax.all._
 import com.comcast.ip4s.IpAddress
 import com.comcast.ip4s.SocketAddress
@@ -43,8 +44,8 @@ private[net] final class UringSocket[F[_]](
     _remoteAddress: SocketAddress[IpAddress],
     buffer: ResizableBuffer[F],
     defaultReadSize: Int,
-    readSemaphore: Semaphore[F],
-    writeSemaphore: Semaphore[F]
+    readMutex: Mutex[F],
+    writeMutex: Mutex[F]
 )(implicit F: Async[F])
     extends Socket[F] {
 
@@ -52,7 +53,7 @@ private[net] final class UringSocket[F[_]](
     ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
-    readSemaphore.permit.surround {
+    readMutex.lock.surround {
       for {
         buf <- buffer.get(maxBytes)
         readed <- recv(buf, maxBytes, 0)
@@ -60,7 +61,7 @@ private[net] final class UringSocket[F[_]](
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
-    readSemaphore.permit.surround {
+    readMutex.lock.surround {
       for {
         buf <- buffer.get(numBytes)
         readed <- recv(buf, numBytes, MSG_WAITALL)
@@ -80,8 +81,7 @@ private[net] final class UringSocket[F[_]](
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
   def write(bytes: Chunk[Byte]): F[Unit] =
-    writeSemaphore.permit
-      .surround {
+    writeMutex.lock.surround {
         val slice = bytes.toArraySlice
         val ptr = slice.values.at(0) + slice.offset.toLong
         ring
@@ -101,7 +101,7 @@ private[net] object UringSocket {
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     ResizableBuffer(8192).evalMap { buf =>
-      (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
+      (Mutex[F], Mutex[F]).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
     }
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
