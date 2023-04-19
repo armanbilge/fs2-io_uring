@@ -80,7 +80,8 @@ private[net] final class UringSocket[F[_]](
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
   def write(bytes: Chunk[Byte]): F[Unit] =
-    writeMutex.lock.surround {
+    writeMutex.lock
+      .surround {
         val slice = bytes.toArraySlice
         val ptr = slice.values.at(0) + slice.offset.toLong
         ring
