@@ -17,12 +17,16 @@
 package fs2.io.uring
 
 import cats.effect.kernel.Async
+import cats.effect.LiftIO
 import com.comcast.ip4s.Dns
 import fs2.io.net.Network
 import fs2.io.uring.net.UringNetwork
 
 object implicits {
 
-  @inline implicit def network[F[_]: Async: Dns]: Network[F] = UringNetwork[F]
+  @inline implicit def network[F[_]: Async: LiftIO: Dns]: Network[F] = {
+    val _ = LiftIO[F]
+    UringNetwork[F]
+  }
 
 }
