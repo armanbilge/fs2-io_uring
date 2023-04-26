@@ -24,6 +24,12 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
   )
 }
 
+ThisBuild / githubWorkflowBuild +=
+  WorkflowStep.Run(
+    List("clang-format --dry-run --Werror uring/src/main/resources/scala-native/*.c"),
+    name = Some("Check formatting of C sources")
+  )
+
 val fs2Version = "3.7.0-RC4"
 val munitCEVersion = "2.0.0-M3"
 

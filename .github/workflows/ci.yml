@@ -93,6 +93,9 @@ jobs:
         if: matrix.java == 'temurin@17' && matrix.os == 'ubuntu-20.04'
         run: sbt 'project ${{ matrix.project }}' '++ ${{ matrix.scala }}' doc
 
+      - name: Check formatting of C sources
+        run: clang-format --dry-run --Werror uring/src/main/resources/scala-native/*.c
+
       - name: Make target directories
         if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
         run: mkdir -p target uring/target .js/target .jvm/target .native/target project/target
