@@ -30,7 +30,7 @@ ThisBuild / githubWorkflowBuild +=
     name = Some("Check formatting of C sources")
   )
 
-val fs2Version = "3.7.0-RC5"
+val fs2Version = "3.7.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
