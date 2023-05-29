@@ -23,7 +23,7 @@ import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
-import cats.effect.std.Mutex
+import cats.effect.std.Semaphore
 import cats.syntax.all._
 import com.comcast.ip4s.IpAddress
 import com.comcast.ip4s.SocketAddress
@@ -44,8 +44,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
     _remoteAddress: SocketAddress[IpAddress],
     buffer: ResizableBuffer[F],
     defaultReadSize: Int,
-    readMutex: Mutex[F],
-    writeMutex: Mutex[F]
+    readSemaphore: Semaphore[F],
+    writeSemaphore: Semaphore[F]
 )(implicit F: Async[F])
     extends Socket[F] {
 
@@ -53,7 +53,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
     ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags)).to
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
-    readMutex.lock.surround {
+    readSemaphore.permit.surround {
       for {
         buf <- buffer.get(maxBytes)
         readed <- recv(buf, maxBytes, 0)
@@ -61,7 +61,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
     }
 
   def readN(numBytes: Int): F[Chunk[Byte]] =
-    readMutex.lock.surround {
+    readSemaphore.permit.surround {
       for {
         buf <- buffer.get(numBytes)
         readed <- recv(buf, numBytes, MSG_WAITALL)
@@ -81,7 +81,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(fd)
 
   def write(bytes: Chunk[Byte]): F[Unit] =
-    writeMutex.lock
+    writeSemaphore.permit
       .surround {
         val slice = bytes.toArraySlice
         val ptr = slice.values.at(0) + slice.offset.toLong
@@ -103,7 +103,7 @@ private[net] object UringSocket {
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     ResizableBuffer(8192).evalMap { buf =>
-      (Mutex[F], Mutex[F]).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
+      (Semaphore(1), Semaxsphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
     }
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
