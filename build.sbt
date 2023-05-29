@@ -6,7 +6,7 @@ ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2022)
 ThisBuild / tlSonatypeUseLegacyHost := false
 
-ThisBuild / crossScalaVersions := Seq("3.2.1", "2.13.10")
+ThisBuild / crossScalaVersions := Seq("3.2.2", "2.13.10")
 
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 ThisBuild / githubWorkflowOSes := Seq("ubuntu-20.04", "ubuntu-22.04")
@@ -18,19 +18,29 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
       List("uname -a")
     ),
     WorkflowStep.Run(
-      List(s"$brew update", s"$brew install liburing"),
+      List(s"$brew install liburing"),
       name = Some("Install liburing")
     )
   )
 }
 
+ThisBuild / githubWorkflowBuild +=
+  WorkflowStep.Run(
+    List("clang-format --dry-run --Werror uring/src/main/resources/scala-native/*.c"),
+    name = Some("Check formatting of C sources")
+  )
+
 val ceVersion = "3.5-9ba870f"
-val fs2Version = "3.4.0"
+val fs2Version = "3.7.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
-  c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
-    .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
+  val arch = System.getProperty("os.arch").toLowerCase()
+  if (Set("arm64", "aarch64").contains(arch))
+    c.withLinkingOptions(c.linkingOptions :+ "-luring")
+  else
+    c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")
+      .withLinkingOptions(c.linkingOptions :+ "/home/linuxbrew/.linuxbrew/lib/liburing.a")
 }
 
 lazy val root = tlCrossRootProject.aggregate(uring)

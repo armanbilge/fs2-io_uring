@@ -46,22 +46,51 @@ private[uring] object uring {
     CUnsignedInt
   ]
 
-  type io_uring_cq = CStruct12[Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[
-    CUnsignedInt
-  ], Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[io_uring_cqe], size_t, Ptr[
-    Byte
-  ], CUnsignedInt, CUnsignedInt, CArray[CUnsignedInt, Nat._2]]
+  type io_uring_cq = CStruct12[
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[
+      CUnsignedInt
+    ],
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[io_uring_cqe],
+    size_t,
+    Ptr[
+      Byte
+    ],
+    CUnsignedInt,
+    CUnsignedInt,
+    CArray[CUnsignedInt, Nat._2]
+  ]
 
   type io_uring_cqe = CStruct3[__u64, __s32, __u32]
 
-  type io_uring_sq = CStruct15[Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[
-    CUnsignedInt
-  ], Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[CUnsignedInt], Ptr[
-    io_uring_sqe
-  ], CUnsignedInt, CUnsignedInt, size_t, Ptr[Byte], CUnsignedInt, CUnsignedInt, CArray[
+  type io_uring_sq = CStruct15[
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[
+      CUnsignedInt
+    ],
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[CUnsignedInt],
+    Ptr[
+      io_uring_sqe
+    ],
     CUnsignedInt,
-    Nat._2
-  ]]
+    CUnsignedInt,
+    size_t,
+    Ptr[Byte],
+    CUnsignedInt,
+    CUnsignedInt,
+    CArray[
+      CUnsignedInt,
+      Nat._2
+    ]
+  ]
 
   type io_uring_sqe =
     CStruct10[__u8, __u8, __u16, __s32, __u64, __u64, __u32, __u32, __u64, CArray[__u64, Nat._3]]
