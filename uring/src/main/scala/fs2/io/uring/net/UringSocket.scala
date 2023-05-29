@@ -103,7 +103,7 @@ private[net] object UringSocket {
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     ResizableBuffer(8192).evalMap { buf =>
-      (Semaphore(1), Semaxsphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
+      (Semaphore(1), Semaphore(1)).mapN(new UringSocket(ring, fd, remote, buf, 8192, _, _))
     }
 
   def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] =
