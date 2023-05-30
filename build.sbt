@@ -19,7 +19,8 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
     ),
     WorkflowStep.Run(
       List(s"$brew install liburing"),
-      name = Some("Install liburing")
+      name = Some("Install liburing"),
+      cond = Some("matrix.project == 'rootNative'")
     )
   )
 }
@@ -45,9 +46,8 @@ ThisBuild / nativeConfig ~= { c =>
 
 lazy val root = tlCrossRootProject.aggregate(uring)
 
-lazy val uring = project
+lazy val uring = crossProject(NativePlatform, JVMPlatform)
   .in(file("uring"))
-  .enablePlugins(ScalaNativePlugin)
   .settings(
     name := "fs2-io_uring",
     libraryDependencies ++= Seq(
