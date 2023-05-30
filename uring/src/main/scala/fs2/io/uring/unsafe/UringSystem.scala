@@ -31,7 +31,6 @@ import cats.syntax.all._
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Set
-import scala.concurrent.ExecutionContext
 import scala.scalanative.posix.errno._
 import scala.scalanative.posix.pollEvents._
 import scala.scalanative.unsafe._
@@ -44,10 +43,12 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  def makePoller(ec: ExecutionContext, data: () => PollData): Poller =
-    new Poller(ec, data)
+  type Api = Uring with FileDescriptorPoller
 
-  def makePollData(): PollData = {
+  def makeApi(register: (Poller => Unit) => Unit): Api =
+    new ApiImpl(register)
+
+  def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
 
     // the submission queue size need not exceed 64
@@ -56,16 +57,20 @@ object UringSystem extends PollingSystem {
     val e = io_uring_queue_init(64.toUInt, ring, 0.toUInt)
     if (e < 0) throw IOExceptionHelper(-e)
 
-    new PollData(ring)
+    new Poller(ring)
   }
 
-  def closePollData(data: PollData): Unit =
-    data.close()
+  def closePoller(poller: Poller): Unit =
+    poller.close()
 
-  def poll(data: PollData, nanos: Long, reportFailure: Throwable => Unit): Boolean =
-    data.poll(nanos)
+  def poll(poller: Poller, nanos: Long, reportFailure: Throwable => Unit): Boolean =
+    poller.poll(nanos)
 
-  final class Poller private[UringSystem] (ec: ExecutionContext, data: () => PollData)
+  def needsPoll(poller: Poller): Boolean = poller.needsPoll()
+
+  def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
+
+  private final class ApiImpl(register: (Poller => Unit) => Unit)
       extends Uring
       with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
@@ -83,10 +88,12 @@ object UringSystem extends PollingSystem {
               F: MonadCancelThrow[F]
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
-              val submit = IO {
-                val sqe = data().getSqe(resume)
-                prep(sqe)
-                sqe.user_data
+              val submit = IO.async_[ULong] { cb =>
+                register { ring =>
+                  val sqe = ring.getSqe(resume)
+                  prep(sqe)
+                  cb(Right(sqe.user_data))
+                }
               }
 
               lift(submit)
@@ -107,12 +114,14 @@ object UringSystem extends PollingSystem {
             }
           }
         }
-      }.evalOn(ec)
+      }
 
     private[this] def cancel(addr: __u64): IO[Boolean] =
       IO.async_[Int] { cb =>
-        val sqe = data().getSqe(cb)
-        io_uring_prep_cancel64(sqe, addr, 0)
+        register { ring =>
+          val sqe = ring.getSqe(cb)
+          io_uring_prep_cancel64(sqe, addr, 0)
+        }
       }.map(_ == 0) // true if we actually canceled
 
     def registerFileDescriptor(
@@ -153,7 +162,7 @@ object UringSystem extends PollingSystem {
       }
   }
 
-  final class PollData private[UringSystem] (ring: Ptr[io_uring]) {
+  final class Poller private[UringSystem] (ring: Ptr[io_uring]) {
 
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
@@ -172,53 +181,52 @@ object UringSystem extends PollingSystem {
       util.free(ring)
     }
 
-    private[UringSystem] def poll(nanos: Long): Boolean =
-      if (nanos <= 0 && callbacks.isEmpty())
-        false
-      else {
+    private[UringSystem] def needsPoll(): Boolean =
+      pendingSubmissions || !callbacks.isEmpty()
 
-        var rtn = if (nanos == 0) {
-          if (pendingSubmissions)
-            io_uring_submit(ring)
-          else 0
-        } else {
+    private[UringSystem] def poll(nanos: Long): Boolean = {
 
-          val timeoutSpec =
-            if (nanos == -1) {
-              null
-            } else {
-              val ts = stackalloc[__kernel_timespec]()
-              ts.tv_sec = nanos / 1000000000
-              ts.tv_nsec = nanos % 1000000000
-              ts
-            }
+      var rtn = if (nanos == 0) {
+        if (pendingSubmissions)
+          io_uring_submit(ring)
+        else 0
+      } else {
 
-          val cqe = stackalloc[Ptr[io_uring_cqe]]()
-          if (pendingSubmissions) {
-            io_uring_submit_and_wait_timeout(ring, cqe, 0.toUInt, timeoutSpec, null)
+        val timeoutSpec =
+          if (nanos == -1) {
+            null
           } else {
-            io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
+            val ts = stackalloc[__kernel_timespec]()
+            ts.tv_sec = nanos / 1000000000
+            ts.tv_nsec = nanos % 1000000000
+            ts
           }
+
+        val cqe = stackalloc[Ptr[io_uring_cqe]]()
+        if (pendingSubmissions) {
+          io_uring_submit_and_wait_timeout(ring, cqe, 0.toUInt, timeoutSpec, null)
+        } else {
+          io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
         }
-
-        val cqes = stackalloc[Ptr[io_uring_cqe]](MaxEvents.toLong)
-        processCqes(cqes)
-
-        if (pendingSubmissions && rtn == -EBUSY) {
-          // submission failed, so try again
-          rtn = io_uring_submit(ring)
-          while (rtn == -EBUSY) {
-            processCqes(cqes)
-            rtn = io_uring_submit(ring)
-          }
-        }
-
-        pendingSubmissions = false
-
-        !callbacks.isEmpty()
       }
 
-    private[this] def processCqes(_cqes: Ptr[Ptr[io_uring_cqe]]): Unit = {
+      val cqes = stackalloc[Ptr[io_uring_cqe]](MaxEvents.toLong)
+      val invokedCbs = processCqes(cqes)
+
+      if (pendingSubmissions && rtn == -EBUSY) {
+        // submission failed, so try again
+        rtn = io_uring_submit(ring)
+        while (rtn == -EBUSY) {
+          processCqes(cqes)
+          rtn = io_uring_submit(ring)
+        }
+      }
+
+      pendingSubmissions = false
+      invokedCbs
+    }
+
+    private[this] def processCqes(_cqes: Ptr[Ptr[io_uring_cqe]]): Boolean = {
       var cqes = _cqes
 
       val filledCount = io_uring_peek_batch_cqe(ring, cqes, MaxEvents.toUInt).toInt
@@ -236,6 +244,7 @@ object UringSystem extends PollingSystem {
       }
 
       io_uring_cq_advance(ring, filledCount.toUInt)
+      filledCount > 0
     }
 
   }

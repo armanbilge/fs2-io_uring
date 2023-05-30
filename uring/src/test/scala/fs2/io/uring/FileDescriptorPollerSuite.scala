@@ -36,6 +36,9 @@ import java.io.IOException
 
 class FileDescriptorPollerSuite extends UringSuite {
 
+  def getFdPoller: IO[FileDescriptorPoller] =
+    IO.pollers.map(_.collectFirst { case poller: FileDescriptorPoller => poller }).map(_.get)
+
   final class Pipe(
       val readFd: Int,
       val writeFd: Int,
@@ -92,7 +95,7 @@ class FileDescriptorPollerSuite extends UringSuite {
         }
       }
       .flatMap { case (readFd, writeFd) =>
-        Resource.eval(IO.poller[FileDescriptorPoller].map(_.get)).flatMap { poller =>
+        Resource.eval(getFdPoller).flatMap { poller =>
           (
             poller.registerFileDescriptor(readFd, true, false),
             poller.registerFileDescriptor(writeFd, false, true)

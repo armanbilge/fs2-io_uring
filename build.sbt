@@ -30,7 +30,7 @@ ThisBuild / githubWorkflowBuild +=
     name = Some("Check formatting of C sources")
   )
 
-val ceVersion = "3.5-9ba870f"
+val ceVersion = "3.6-0142603"
 val fs2Version = "3.7.0"
 val munitCEVersion = "2.0.0-M3"
 

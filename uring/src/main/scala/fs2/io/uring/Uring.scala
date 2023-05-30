@@ -34,8 +34,10 @@ abstract class Uring private[uring] {
 object Uring {
 
   def get[F[_]: LiftIO]: F[Uring] =
-    IO.poller[Uring]
-      .flatMap(_.liftTo[IO](new RuntimeException("No UringSystem installed")))
-      .to
+    IO.pollers.flatMap {
+      _.collectFirst { case ring: Uring =>
+        ring
+      }.liftTo[IO](new RuntimeException("No UringSystem installed"))
+    }.to
 
 }
