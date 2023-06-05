@@ -131,24 +131,3 @@ object NativeAccess {
       ringFd
     )
 }
-
-trait RingBuffer {
-  def ioUringCompletionQueue(): IOUringCompletionQueue
-  def ioUringSubmissionQueue(): IOUringSubmissionQueue
-  def fd(): Int
-  def close(): Unit
-}
-
-final class MyRingBuffer extends RingBuffer {
-  private[this] val ringBuffer: RingBuffer = NativeAccess.createRingBuffer()
-
-  override def ioUringCompletionQueue(): IOUringCompletionQueue =
-    ringBuffer.ioUringCompletionQueue()
-
-  override def ioUringSubmissionQueue(): IOUringSubmissionQueue =
-    ringBuffer.ioUringSubmissionQueue()
-
-  override def fd(): Int = ringBuffer.fd()
-
-  override def close(): Unit = ringBuffer.close()
-}
