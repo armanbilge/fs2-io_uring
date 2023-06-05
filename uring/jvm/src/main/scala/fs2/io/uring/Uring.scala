@@ -21,12 +21,13 @@ import cats.effect.LiftIO
 import cats.effect.kernel.Resource
 import cats.syntax.all._
 
+import io.netty.incubator.channel.uring.UringSubmissionQueue
 
 abstract class Uring private[uring] {
 
-  def call(): IO[Int]
+  def call(prep: UringSubmissionQueue => Unit): IO[Int]
 
-  def bracket()(release: Int => IO[Unit]): Resource[IO, Int]
+  def bracket(prep: UringSubmissionQueue => Unit)(release: Int => IO[Unit]): Resource[IO, Int]
 }
 
 object Uring {
