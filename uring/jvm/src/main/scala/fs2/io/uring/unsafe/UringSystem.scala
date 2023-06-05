@@ -18,6 +18,13 @@ package fs2.io.uring
 package unsafe
 
 import cats.effect.unsafe.PollingSystem
+import io.netty.incubator.channel.uring.UringRing
+import io.netty.incubator.channel.uring.UringSubmissionQueue
+
+import java.util.Collections
+import java.util.IdentityHashMap
+import java.util.Set
+
 
 object UringSystem extends PollingSystem {
 
@@ -33,6 +40,28 @@ object UringSystem extends PollingSystem {
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ???
 
+  final class Poller private[UringSystem] (ring: UringRing) {
 
-  final class Poller private[UringSystem] () {}
+    private[this] var pendingSubmissions: Boolean = false
+    private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
+      Collections.newSetFromMap(new IdentityHashMap)
+
+    private[UringSystem] def getSqe(cb: Either[Throwable, Int] => Unit): UringSubmissionQueue = {
+      pendingSubmissions = true
+      val sqe = ring.ioUringSubmissionQueue()
+      // TODO: We modify the "data" from the sqe
+      callbacks.add(cb)
+      sqe
+    }
+
+    private[UringSystem] def close(): Unit = ring.close()
+
+    private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty()
+
+    private[UringSystem] def poll(nanos: Long): Boolean = ???
+
+    private[this] def processCqes(_cqes: List[UringSubmissionQueue]): Boolean = ???
+
+  }
+
 }
