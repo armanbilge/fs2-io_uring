@@ -17,10 +17,11 @@
 package fs2.io.uring
 
 import cats.effect.IOApp
+import fs2.io.uring.unsafe.UringSystem
 
 trait UringApp extends IOApp {
 
-  override protected final def pollingSystem = ???
+  override protected final def pollingSystem = UringSystem
 
 }
 
