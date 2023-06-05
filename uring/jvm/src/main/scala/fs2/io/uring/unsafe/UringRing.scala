@@ -16,17 +16,18 @@
 
 package io.netty.incubator.channel.uring
 
+import io.netty.incubator.channel.uring.NativeAccess.createRingBuffer
 import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringSubmissionQueue
 
 class UringRing {
-  private val ringBuffer: RingBuffer = NativeAccess.createRingBuffer()
+  private val ringBuffer: RingBuffer = createRingBuffer()
+  private val uringCompletionQueue: UringCompletionQueue = new UringCompletionQueue(ringBuffer)
+  private val uringSubmissionQueue: UringSubmissionQueue = new UringSubmissionQueue(ringBuffer)
 
-  def ioUringCompletionQueue(): UringCompletionQueue =
-    new UringCompletionQueue(ringBuffer)
+  def ioUringCompletionQueue(): UringCompletionQueue = uringCompletionQueue
 
-  def ioUringSubmissionQueue(): UringSubmissionQueue =
-    new UringSubmissionQueue(ringBuffer)
+  def ioUringSubmissionQueue(): UringSubmissionQueue = uringSubmissionQueue
 
   def fd(): Int = ringBuffer.fd()
 
