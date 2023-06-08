@@ -109,10 +109,6 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
   def prepCancel(userData: Long, flags: Int): Unit =
     // TODO: We need to cancel in UringSystem.ApiImpl.cancel
     ???
-
-  def prepPollAdd(fd: Int, pollMask: Int): Unit = // TODO: mask must be unsigned Int
-    // TODO: We need to poll in UringSystem.ApiImpl.registerFileDescriptor
-    ???
 }
 
 object UringSubmissionQueue {

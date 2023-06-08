@@ -29,7 +29,6 @@ import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Cont
 import cats.effect.std.Semaphore
 
-
 import cats.effect.unsafe.PollingSystem
 
 import io.netty.incubator.channel.uring.UringRing
@@ -133,7 +132,7 @@ object UringSystem extends PollingSystem {
                     if (r.isRight)
                       IO.unit
                     else
-                      call(_.prepPollAdd(fd, 0x001.toInt))
+                      call(_.addPollIn(fd))
                   }
                 }
               }
@@ -145,7 +144,7 @@ object UringSystem extends PollingSystem {
                     if (r.isRight)
                       IO.unit
                     else
-                      call(_.prepPollAdd(fd, 0x004.toInt))
+                      call(_.addPollOut(fd))
                   }
                 }
               }
@@ -174,8 +173,6 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty()
 
     private[UringSystem] def poll(nanos: Long): Boolean = ???
-
-    private[this] def processCqes(_cqes: List[UringSubmissionQueue]): Boolean = ???
 
   }
 
