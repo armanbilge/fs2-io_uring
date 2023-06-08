@@ -87,7 +87,7 @@ object NativeAccessEffect {
 object NativeAccess {
   val DEFAULT_RING_SIZE = Native.DEFAULT_RING_SIZE
   val DEFAULT_IOSEQ_ASYNC_THRESHOLD = Native.DEFAULT_IOSEQ_ASYNC_THRESHOLD
-  
+
   val POLLIN = Native.POLLIN
   val POLLOUT = Native.POLLOUT
 

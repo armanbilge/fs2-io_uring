@@ -16,8 +16,4 @@
 
 package fs2.io.uring.unsafe
 
-
-private[uring] object util {
-
-
-}
+private[uring] object util {}

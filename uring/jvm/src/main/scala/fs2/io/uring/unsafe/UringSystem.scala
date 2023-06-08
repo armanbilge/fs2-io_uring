@@ -60,8 +60,7 @@ object UringSystem extends PollingSystem {
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
-  private final class ApiImpl(register: (Poller => Unit) => Unit)
-      extends Uring {
+  private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
     def call(prep: UringSubmissionQueue => Unit): IO[Int] =

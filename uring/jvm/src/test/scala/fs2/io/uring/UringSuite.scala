@@ -16,9 +16,7 @@
 
 package fs2.io.uring
 
-import cats.effect.unsafe.IORuntime
-// import cats.effect.unsafe.IORuntimeConfig
-// import fs2.io.uring.unsafe.UringSystem
+import cats.effect.unsafe.IORuntimes
 import munit.CatsEffectSuite
 
 abstract class UringSuite extends CatsEffectSuite {
