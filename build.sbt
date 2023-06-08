@@ -54,7 +54,8 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
       "org.typelevel" %%% "cats-effect" % ceVersion,
       "co.fs2" %%% "fs2-io" % fs2Version,
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test,
-      "io.netty.incubator" % "netty-incubator-transport-native-io_uring" % "0.0.21.Final" classifier "linux-x86_64"
+      ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % "0.0.21.Final")
+        .classifier("linux-x86_64")
     ),
     Test / testOptions += Tests.Argument("+l")
   )
