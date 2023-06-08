@@ -98,7 +98,21 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
 
   def release(): Unit = submissionQueue.release()
 
-  def setData[A <: AnyRef](data: A): Unit = ???
+  def setData[A <: AnyRef](data: A): Unit =
+    // TODO: We need to set data in UringSystem.Poller.getSqe
+    ???
+
+  def userData(): Long =
+    // TODO: We need to access the userData in UringSystem.ApiImpl.exec
+    ???
+
+  def prepCancel(userData: Long, flags: Int): Unit =
+    // TODO: We need to cancel in UringSystem.ApiImpl.cancel
+    ???
+
+  def prepPollAdd(fd: Int, pollMask: Int): Unit = // TODO: mask must be unsigned Int
+    // TODO: We need to poll in UringSystem.ApiImpl.registerFileDescriptor
+    ???
 }
 
 object UringSubmissionQueue {
