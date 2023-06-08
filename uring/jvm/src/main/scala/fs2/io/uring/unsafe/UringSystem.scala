@@ -21,13 +21,10 @@ import cats.~>
 import cats.syntax.all._
 
 import cats.effect.IO
-import cats.effect.FileDescriptorPoller
-import cats.effect.FileDescriptorPollHandle
 
 import cats.effect.kernel.Resource
 import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Cont
-import cats.effect.std.Semaphore
 
 import cats.effect.unsafe.PollingSystem
 
@@ -42,7 +39,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  type Api = Uring with FileDescriptorPoller
+  type Api = Uring
 
   type Address = Long
 
@@ -64,8 +61,7 @@ object UringSystem extends PollingSystem {
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
   private final class ApiImpl(register: (Poller => Unit) => Unit)
-      extends Uring
-      with FileDescriptorPoller {
+      extends Uring {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
     def call(prep: UringSubmissionQueue => Unit): IO[Int] =
@@ -115,43 +111,6 @@ object UringSystem extends PollingSystem {
           sqe.prepCancel(addr, 0)
         }
       }.map(_ == 0) // true if we canceled
-
-    def registerFileDescriptor(
-        fd: Int,
-        reads: Boolean,
-        writes: Boolean
-    ): Resource[IO, FileDescriptorPollHandle] =
-      Resource.eval {
-        (Semaphore[IO](1), Semaphore[IO](1)).mapN { (readSemaphore, writeSemaphore) =>
-          new FileDescriptorPollHandle {
-
-            def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              readSemaphore.permit.surround {
-                a.tailRecM { a =>
-                  f(a).flatTap { r =>
-                    if (r.isRight)
-                      IO.unit
-                    else
-                      call(_.addPollIn(fd))
-                  }
-                }
-              }
-
-            def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              writeSemaphore.permit.surround {
-                a.tailRecM { a =>
-                  f(a).flatTap { r =>
-                    if (r.isRight)
-                      IO.unit
-                    else
-                      call(_.addPollOut(fd))
-                  }
-                }
-              }
-          }
-
-        }
-      }
   }
 
   final class Poller private[UringSystem] (ring: UringRing) {
