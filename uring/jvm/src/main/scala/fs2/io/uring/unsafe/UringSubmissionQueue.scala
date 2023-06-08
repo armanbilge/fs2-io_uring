@@ -16,6 +16,8 @@
 
 package io.netty.incubator.channel.uring
 
+import UringSubmissionQueue.IORING_OP_ASYNC_CANCEL
+
 class UringSubmissionQueue(private val ring: RingBuffer) {
   private val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
 
@@ -106,11 +108,12 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
     // TODO: We need to access the userData in UringSystem.ApiImpl.exec
     ???
 
-  def prepCancel(userData: Long, flags: Int): Unit =
-    // TODO: We need to cancel in UringSystem.ApiImpl.cancel
-    ???
+  def prepCancel(addr: Long, flags: Int): Boolean =
+    enqueueSqe(IORING_OP_ASYNC_CANCEL, flags, 0, -1, addr, 0, 0, 0)
 }
 
 object UringSubmissionQueue {
+  final val IORING_OP_ASYNC_CANCEL: Byte = 14.toByte
+
   def apply(ring: RingBuffer): UringSubmissionQueue = new UringSubmissionQueue(ring)
 }

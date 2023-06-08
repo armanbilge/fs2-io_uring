@@ -76,7 +76,7 @@ object UringSystem extends PollingSystem {
               F: MonadCancelThrow[F]
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
-              val submit = IO.async_[Long] { cb => // TODO: We need Unsigned Long here
+              val submit = IO.async_[Long] { cb =>
                 register { ring =>
                   val sqe = ring.getSqe(resume)
                   prep(sqe)
@@ -107,9 +107,11 @@ object UringSystem extends PollingSystem {
       IO.async_[Int] { cb =>
         register { ring =>
           val sqe = ring.getSqe(cb)
-          sqe.prepCancel(addr, 0)
+          val wasCancelled = sqe.prepCancel(addr, 0)
+          cb(Right(if (wasCancelled) 1 else 0))
         }
-      }.map(_ == 0) // true if we canceled
+      }.map(_ == 1)
+
   }
 
   final class Poller private[UringSystem] (ring: UringRing) {
