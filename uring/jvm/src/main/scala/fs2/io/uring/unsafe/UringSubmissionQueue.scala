@@ -16,7 +16,7 @@
 
 package io.netty.incubator.channel.uring
 
-class UringSubmissionQueue(ring: RingBuffer) {
+class UringSubmissionQueue(private val ring: RingBuffer) {
   private val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
 
   def enqueueSqe(
@@ -97,4 +97,10 @@ class UringSubmissionQueue(ring: RingBuffer) {
   def count(): Long = submissionQueue.count()
 
   def release(): Unit = submissionQueue.release()
+
+  def setData[A <: AnyRef](data: A): Unit = ???
+}
+
+object UringSubmissionQueue {
+  def apply(ring: RingBuffer): UringSubmissionQueue = new UringSubmissionQueue(ring)
 }

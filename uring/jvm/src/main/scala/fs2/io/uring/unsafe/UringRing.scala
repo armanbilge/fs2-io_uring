@@ -16,14 +16,20 @@
 
 package io.netty.incubator.channel.uring
 
-import io.netty.incubator.channel.uring.NativeAccess.createRingBuffer
+import io.netty.incubator.channel.uring.NativeAccess._
 import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringSubmissionQueue
 
-class UringRing {
-  private val ringBuffer: RingBuffer = createRingBuffer()
-  private val uringCompletionQueue: UringCompletionQueue = new UringCompletionQueue(ringBuffer)
-  private val uringSubmissionQueue: UringSubmissionQueue = new UringSubmissionQueue(ringBuffer)
+class UringRing(private val ringBuffer: RingBuffer) {
+  private val uringCompletionQueue: UringCompletionQueue = UringCompletionQueue(ringBuffer)
+  private val uringSubmissionQueue: UringSubmissionQueue = UringSubmissionQueue(ringBuffer)
+
+  def this() = this(createRingBuffer())
+
+  def this(size: Int) = this(createRingBuffer(size))
+
+  def this(size: Int, sqeAsyncThreshold: Int) =
+    this(createRingBuffer(size, sqeAsyncThreshold))
 
   def ioUringCompletionQueue(): UringCompletionQueue = uringCompletionQueue
 
@@ -32,4 +38,13 @@ class UringRing {
   def fd(): Int = ringBuffer.fd()
 
   def close(): Unit = ringBuffer.close()
+}
+
+object UringRing {
+  def apply(): UringRing = new UringRing()
+
+  def apply(size: Int): UringRing = new UringRing(size)
+
+  def apply(size: Int, sqeAsyncThreshold: Int): UringRing = new UringRing(size, sqeAsyncThreshold)
+
 }

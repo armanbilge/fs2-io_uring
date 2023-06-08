@@ -16,7 +16,7 @@
 
 package io.netty.incubator.channel.uring
 
-class UringCompletionQueue(ring: RingBuffer) {
+class UringCompletionQueue(private val ring: RingBuffer) {
 
   private val completionQueue: IOUringCompletionQueue = ring.ioUringCompletionQueue()
 
@@ -31,4 +31,8 @@ class UringCompletionQueue(ring: RingBuffer) {
   def ringFd(): Int = completionQueue.ringFd
 
   def ringSize(): Int = completionQueue.ringSize
+}
+
+object UringCompletionQueue {
+  def apply(ring: RingBuffer): UringCompletionQueue = new UringCompletionQueue(ring)
 }
