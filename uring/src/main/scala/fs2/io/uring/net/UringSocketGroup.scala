@@ -32,6 +32,7 @@ import fs2.io.uring.unsafe.uring._
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.unsafe._
+import scala.scalanative.unsigned._
 
 private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
@@ -114,9 +115,9 @@ private final class UringSocketGroup[F[_]](implicit F: Async[F], dns: Dns[F])
     }
 
   private def openSocket(ipv4: Boolean)(implicit ring: Uring[F]): Resource[F, Int] =
-    Resource.make[F, Int] {
+    ring.bracket { sqe =>
       val domain = if (ipv4) AF_INET else AF_INET6
-      F.delay(socket(domain, SOCK_STREAM, 0))
+      io_uring_prep_socket(sqe, domain, SOCK_STREAM, 0, 0.toUInt)
     }(closeSocket(_))
 
   private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =

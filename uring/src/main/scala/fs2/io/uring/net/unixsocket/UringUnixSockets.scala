@@ -116,9 +116,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
     }
 
   private def openSocket(implicit ring: Uring[F]): Resource[F, Int] =
-    Resource.make[F, Int] {
-      F.delay(socket(AF_UNIX, SOCK_STREAM, 0))
-    }(closeSocket(_))
+    ring.bracket(io_uring_prep_socket(_, AF_UNIX, SOCK_STREAM, 0, 0.toUInt))(closeSocket(_))
 
   private def closeSocket(fd: Int)(implicit ring: Uring[F]): F[Unit] =
     ring.call(io_uring_prep_close(_, fd)).void
