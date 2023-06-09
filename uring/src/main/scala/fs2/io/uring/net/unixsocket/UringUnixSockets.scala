@@ -120,9 +120,9 @@ private[net] final class UringUnixSockets[F[_]: Files: LiftIO](implicit F: Async
     }
 
   private def openSocket(ring: Uring): Resource[F, Int] =
-    Resource.make[F, Int] {
-      F.delay(socket(AF_UNIX, SOCK_STREAM, 0))
-    }(closeSocket(ring, _).to)
+    ring
+      .bracket(io_uring_prep_socket(_, AF_UNIX, SOCK_STREAM, 0, 0.toUInt))(closeSocket(ring, _))
+      .mapK(LiftIO.liftK)
 
   private def closeSocket(ring: Uring, fd: Int): IO[Unit] =
     ring.call(io_uring_prep_close(_, fd)).void
