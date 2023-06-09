@@ -25,6 +25,8 @@ import scala.scalanative.runtime.Intrinsics._
 
 @extern
 private[uring] object uring {
+  final val IORING_SETUP_SUBMIT_ALL = 1 << 7
+
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
   type __s32 = CInt
