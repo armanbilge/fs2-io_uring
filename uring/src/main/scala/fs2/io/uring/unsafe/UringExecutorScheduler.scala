@@ -124,8 +124,8 @@ private[uring] final class UringExecutorScheduler(
 private[uring] object UringExecutorScheduler {
 
   def apply(pollEvery: Int, maxEvents: Int): (UringExecutorScheduler, () => Unit) = {
-    implicit val zone = Zone.open()
-    val ring = alloc[io_uring]()
+    val alloc = new Array[Byte](sizeof[io_uring].toInt)
+    @inline def ring = alloc.at(0).asInstanceOf[Ptr[io_uring]]
 
     val flags = IORING_SETUP_SUBMIT_ALL
 
@@ -134,10 +134,7 @@ private[uring] object UringExecutorScheduler {
     // and at most pollEvery suspensions can happen per iteration
     io_uring_queue_init(pollEvery.toUInt, ring, flags.toUInt)
 
-    val cleanup = () => {
-      io_uring_queue_exit(ring)
-      zone.close()
-    }
+    val cleanup = () => io_uring_queue_exit(ring)
 
     (new UringExecutorScheduler(ring, pollEvery, maxEvents), cleanup)
   }
