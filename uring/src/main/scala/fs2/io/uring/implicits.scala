@@ -14,23 +14,19 @@
  * limitations under the License.
  */
 
-package fs2.io.uring.unsafe
+package fs2.io.uring
 
-import scala.scalanative.libc.string._
-import scala.scalanative.unsafe._
-import scala.scalanative.unsigned._
+import cats.effect.kernel.Async
+import cats.effect.LiftIO
+import com.comcast.ip4s.Dns
+import fs2.io.net.Network
+import fs2.io.uring.net.UringNetwork
 
-private[uring] object util {
+object implicits {
 
-  def toPtr(bytes: Array[Byte], ptr: Ptr[Byte]): Unit = {
-    memcpy(ptr, bytes.at(0), bytes.length.toUInt)
-    ()
-  }
-
-  def toArray(ptr: Ptr[Byte], length: Int): Array[Byte] = {
-    val bytes = new Array[Byte](length)
-    memcpy(bytes.at(0), ptr, length.toUInt)
-    bytes
+  @inline implicit def network[F[_]: Async: LiftIO: Dns]: Network[F] = {
+    val _ = LiftIO[F]
+    UringNetwork[F]
   }
 
 }

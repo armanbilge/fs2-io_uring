@@ -1,0 +1,43 @@
+native_amd64_task:
+  compute_engine_instance:
+    image_project: ubuntu-os-cloud
+    image: ubuntu-2304-lunar-amd64-v20230530
+    platform: linux
+    architecture: amd64
+  matrix:
+    - name: x86_64 Scala 2.13
+      script:
+        - uname -a
+        - apt-get update && apt-get install -y build-essential clang default-jre
+        - git clone https://github.com/axboe/liburing.git && cd liburing && ./configure && make && sudo make install && cd ..
+        - wget -q https://github.com/sbt/sbt/releases/download/v1.9.0/sbt-1.9.0.tgz && tar xvfz sbt-1.9.0.tgz
+        - sbt/bin/sbt '++ 2.13' test
+    - name: x86_64 Scala 3
+      script:
+        - uname -a
+        - apt-get update && apt-get install -y build-essential clang default-jre
+        - git clone https://github.com/axboe/liburing.git && cd liburing && ./configure && make && sudo make install && cd ..
+        - wget -q https://github.com/sbt/sbt/releases/download/v1.9.0/sbt-1.9.0.tgz && tar xvfz sbt-1.9.0.tgz
+        - sbt/bin/sbt '++ 3' test
+
+native_arm64_task:
+  compute_engine_instance:
+    image_project: ubuntu-os-cloud
+    image: ubuntu-2304-lunar-arm64-v20230530
+    platform: linux
+    architecture: arm64
+  matrix:
+    - name: ARM Scala 2.13
+      script:
+        - uname -a
+        - apt-get update && apt-get install -y build-essential clang default-jre
+        - git clone https://github.com/axboe/liburing.git && cd liburing && ./configure && make && sudo make install && cd ..
+        - wget -q https://github.com/sbt/sbt/releases/download/v1.9.0/sbt-1.9.0.tgz && tar xvfz sbt-1.9.0.tgz
+        - sbt/bin/sbt '++ 2.13' test
+    - name: ARM Scala 3
+      script:
+        - uname -a
+        - apt-get update && apt-get install -y build-essential clang default-jre
+        - git clone https://github.com/axboe/liburing.git && cd liburing && ./configure && make && sudo make install && cd ..
+        - wget -q https://github.com/sbt/sbt/releases/download/v1.9.0/sbt-1.9.0.tgz && tar xvfz sbt-1.9.0.tgz
+        - sbt/bin/sbt '++ 3' test

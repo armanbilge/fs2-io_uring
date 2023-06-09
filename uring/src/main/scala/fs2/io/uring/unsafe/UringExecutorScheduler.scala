@@ -75,7 +75,7 @@ private[uring] final class UringExecutorScheduler(
 
         val cqe = stackalloc[Ptr[io_uring_cqe]]()
         if (pendingSubmissions) {
-          io_uring_submit_and_wait_timeout(ring, cqe, 1.toUInt, timeoutSpec, null)
+          io_uring_submit_and_wait_timeout(ring, cqe, 0.toUInt, timeoutSpec, null)
         } else {
           io_uring_wait_cqe_timeout(ring, cqe, timeoutSpec)
         }

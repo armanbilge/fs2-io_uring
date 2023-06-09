@@ -203,18 +203,30 @@ class TcpSocketSuite extends UringSuite {
   // TODO decide about "read after timed out read not allowed"
 
   test("can shutdown a socket that's pending a read") {
-    sg.serverResource().use { case (bindAddress, clients) =>
+    val timeout = 2.seconds
+    val test = sg.serverResource().use { case (bindAddress, clients) =>
       sg.client(bindAddress).use { _ =>
         clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
           case _: TimeoutException => ()
         }
       }
     }
+
+    // also test that timeouts are working correctly
+    test.timed.flatMap { case (duration, _) =>
+      IO(assert(clue(duration) < (timeout + 100.millis)))
+    }
   }
 
   test("accept is cancelable") {
     sg.serverResource().use { case (_, clients) =>
       clients.compile.drain.timeoutTo(100.millis, IO.unit)
+    }
+  }
+
+  test("empty write") {
+    setup.use { case (_, clients) =>
+      clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
     }
   }
 
