@@ -128,10 +128,10 @@ private[uring] object UringExecutorScheduler {
     val ring = alloc[io_uring]()
 
     val flags = IORING_SETUP_SUBMIT_ALL |
-        IORING_SETUP_COOP_TASKRUN |
-        IORING_SETUP_TASKRUN_FLAG |
-        IORING_SETUP_SINGLE_ISSUER |
-        IORING_SETUP_DEFER_TASKRUN
+      IORING_SETUP_COOP_TASKRUN |
+      IORING_SETUP_TASKRUN_FLAG |
+      IORING_SETUP_SINGLE_ISSUER |
+      IORING_SETUP_DEFER_TASKRUN
 
     // the submission queue size need not exceed pollEvery
     // every submission is accompanied by async suspension,
