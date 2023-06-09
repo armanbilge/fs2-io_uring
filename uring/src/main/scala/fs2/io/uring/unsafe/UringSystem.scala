@@ -51,10 +51,16 @@ object UringSystem extends PollingSystem {
   def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
 
+    val flags = IORING_SETUP_SUBMIT_ALL |
+      IORING_SETUP_COOP_TASKRUN |
+      IORING_SETUP_TASKRUN_FLAG |
+      IORING_SETUP_SINGLE_ISSUER |
+      IORING_SETUP_DEFER_TASKRUN
+
     // the submission queue size need not exceed 64
     // every submission is accompanied by async suspension,
     // and at most 64 suspensions can happen per iteration
-    val e = io_uring_queue_init(64.toUInt, ring, 0.toUInt)
+    val e = io_uring_queue_init(64.toUInt, ring, flags.toUInt)
     if (e < 0) throw IOExceptionHelper(-e)
 
     new Poller(ring)
