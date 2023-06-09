@@ -101,19 +101,20 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
     }
 
   private def toSockaddrUn(path: String): Resource[F, Ptr[sockaddr]] =
-    Resource.make(F.delay(Zone.open()))(z => F.delay(z.close())).evalMap[Ptr[sockaddr]] {
-      implicit z =>
+    Resource
+      .make(F.delay(new Array[Byte](sizeof[sockaddr_un].toInt)))(_.pure.void)
+      .evalMap[Ptr[sockaddr]] { alloc =>
         val pathBytes = path.getBytes
         if (pathBytes.length > 107)
           F.raiseError(new IllegalArgumentException(s"Path too long: $path"))
         else
           F.delay {
-            val addr = alloc[sockaddr_un]()
+            val addr = alloc.at(0).asInstanceOf[Ptr[sockaddr_un]]
             addr.sun_family = AF_UNIX.toUShort
             toPtr(pathBytes, addr.sun_path.at(0))
             addr.asInstanceOf[Ptr[sockaddr]]
           }
-    }
+      }
 
   private def openSocket(implicit ring: Uring[F]): Resource[F, Int] =
     ring.bracket(io_uring_prep_socket(_, AF_UNIX, SOCK_STREAM, 0, 0.toUInt))(closeSocket(_))
