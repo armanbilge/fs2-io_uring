@@ -26,6 +26,10 @@ import scala.scalanative.runtime.Intrinsics._
 @extern
 private[uring] object uring {
   final val IORING_SETUP_SUBMIT_ALL = 1 << 7
+  final val IORING_SETUP_COOP_TASKRUN = 1 << 8
+  final val IORING_SETUP_TASKRUN_FLAG = 1 << 9
+  final val IORING_SETUP_SINGLE_ISSUER = 1 << 12
+  final val IORING_SETUP_DEFER_TASKRUN = 1 << 13
 
   type __u8 = CUnsignedChar
   type __u16 = CUnsignedShort
