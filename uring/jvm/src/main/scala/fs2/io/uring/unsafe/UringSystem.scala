@@ -80,7 +80,7 @@ object UringSystem extends PollingSystem {
                 register { ring =>
                   val sqe = ring.getSqe(resume)
                   prep(sqe)
-                  cb(Right(sqe.userData()))
+                  cb(Right(sqe.userData())) // TODO: Implement userData()
                 }
               }
 
@@ -123,7 +123,7 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def getSqe(cb: Either[Throwable, Int] => Unit): UringSubmissionQueue = {
       pendingSubmissions = true
       val sqe = ring.ioUringSubmissionQueue()
-      sqe.setData(cb)
+      sqe.setData(cb) // TODO: Implement setData()
       callbacks.add(cb)
       sqe
     }

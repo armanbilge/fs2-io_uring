@@ -16,7 +16,9 @@
 
 package io.netty.incubator.channel.uring
 
-import UringSubmissionQueue.IORING_OP_ASYNC_CANCEL
+import io.netty.util.internal.PlatformDependent
+
+import UringSubmissionQueue._
 
 class UringSubmissionQueue(private val ring: RingBuffer) {
   private val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
@@ -100,20 +102,33 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
 
   def release(): Unit = submissionQueue.release()
 
-  def setData[A <: AnyRef](data: A): Unit =
+  def setData[A <: AnyRef](data: Long): Unit = {
     // TODO: We need to set data in UringSystem.Poller.getSqe
-    ???
+    // Update: Expose the tail go get access to the address and be able to manipulate the data
+    val ringMask: Int = submissionQueue.ringEntries - 1
+    val sqe: Long = submissionQueue.submissionQueueArrayAddress + (tail ++ & ringMask) * SQE_SIZE
+    PlatformDependent.putLong(sqe + SQE_USER_DATA_FIELD, data)
+  }
 
-  def userData(): Long =
+  def userData(): Long = {
     // TODO: We need to access the userData in UringSystem.ApiImpl.exec
-    ???
+    // Update: Expose the tail go get access to the address and be able to manipulate the data
+    val ringMask: Int = submissionQueue.ringEntries - 1
+    val sqe: Long = submissionQueue.submissionQueueArrayAddress + (tail ++ & ringMask) * SQE_SIZE
+    PlatformDependent.getLong(sqe + SQE_USER_DATA_FIELD)
+  }
 
   def prepCancel(addr: Long, flags: Int): Boolean =
     enqueueSqe(IORING_OP_ASYNC_CANCEL, flags, 0, -1, addr, 0, 0, 0)
+
 }
 
 object UringSubmissionQueue {
+  final val SQE_SIZE = 64
+
   final val IORING_OP_ASYNC_CANCEL: Byte = 14.toByte
+
+  final val SQE_USER_DATA_FIELD = 32
 
   def apply(ring: RingBuffer): UringSubmissionQueue = new UringSubmissionQueue(ring)
 }
