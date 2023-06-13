@@ -31,7 +31,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
     name = Some("Wait for Cirrus CI")
   )
 
-val ceVersion = "3.6-0142603"
+val ceVersion = "3.6-e9aeb8c"
 val fs2Version = "3.7.0"
 val munitCEVersion = "2.0.0-M3"
 

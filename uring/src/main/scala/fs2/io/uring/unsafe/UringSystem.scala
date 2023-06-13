@@ -45,6 +45,8 @@ object UringSystem extends PollingSystem {
 
   type Api = Uring with FileDescriptorPoller
 
+  def close(): Unit = ()
+
   def makeApi(register: (Poller => Unit) => Unit): Api =
     new ApiImpl(register)
 

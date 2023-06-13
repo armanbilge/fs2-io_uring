@@ -24,7 +24,7 @@ import munit.CatsEffectSuite
 abstract class UringSuite extends CatsEffectSuite {
 
   override lazy val munitIORuntime = {
-    val (loop, poller) = IORuntime.createEventLoop(UringSystem)
+    val (loop, poller, _) = IORuntime.createEventLoop(UringSystem)
     IORuntime(loop, loop, loop, List(poller), () => (), IORuntimeConfig())
   }
 
