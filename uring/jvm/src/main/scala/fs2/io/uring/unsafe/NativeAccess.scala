@@ -84,9 +84,15 @@ object NativeAccessEffect {
 
 }
 
+/**
+  * Provides direct access to the native methods and functionalities
+  * of the io_uring subsystem in Netty.
+  */
 object NativeAccess {
   val DEFAULT_RING_SIZE = Native.DEFAULT_RING_SIZE
   val DEFAULT_IOSEQ_ASYNC_THRESHOLD = Native.DEFAULT_IOSEQ_ASYNC_THRESHOLD
+  val IORING_OP_POLL_WRITE = Native.IORING_OP_WRITE
+  val IORING_OP_POLL_READ = Native.IORING_OP_READ
 
   val POLLIN = Native.POLLIN
   val POLLOUT = Native.POLLOUT
