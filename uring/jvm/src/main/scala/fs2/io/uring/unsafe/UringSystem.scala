@@ -30,10 +30,10 @@ import cats.effect.unsafe.PollingSystem
 
 import io.netty.incubator.channel.uring.UringRing
 import io.netty.incubator.channel.uring.UringSubmissionQueue
+import io.netty.incubator.channel.uring.UringCompletionQueueCallback
 
-import java.util.Collections
-import java.util.IdentityHashMap
-import java.util.Set
+import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 
 object UringSystem extends PollingSystem {
 
@@ -45,11 +45,8 @@ object UringSystem extends PollingSystem {
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
 
-  override def makePoller(): Poller = {
-    val ring = UringRing()
-    // TODO: review potential errors and handle them
-    new Poller(ring)
-  }
+  override def makePoller(): Poller =
+    new Poller(UringRing())
 
   override def closePoller(poller: Poller): Unit = poller.close()
 
@@ -74,13 +71,18 @@ object UringSystem extends PollingSystem {
         new Cont[IO, Int, Int] {
           def apply[F[_]](implicit
               F: MonadCancelThrow[F]
-          ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
+          ): (Either[Throwable, Long] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
               val submit = IO.async_[Long] { cb =>
                 register { ring =>
                   val sqe = ring.getSqe(resume)
                   prep(sqe)
-                  cb(Right(sqe.userData())) // TODO: Implement userData()
+
+                  sqe.setData(cb)
+
+                  val userData = sqe.encode(0, 0, sqe.counter)
+
+                  cb(Right(userData))
                 }
               }
 
@@ -104,7 +106,7 @@ object UringSystem extends PollingSystem {
       }
 
     private[this] def cancel(addr: Address): IO[Boolean] =
-      IO.async_[Int] { cb =>
+      IO.async_[Long] { cb =>
         register { ring =>
           val sqe = ring.getSqe(cb)
           val wasCancelled = sqe.prepCancel(addr, 0)
@@ -117,14 +119,21 @@ object UringSystem extends PollingSystem {
   final class Poller private[UringSystem] (ring: UringRing) {
 
     private[this] var pendingSubmissions: Boolean = false
-    private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
-      Collections.newSetFromMap(new IdentityHashMap)
+    private[this] val callbacks: ConcurrentHashMap[Int, Either[Throwable, Long] => Unit] =
+      new ConcurrentHashMap[Int, Either[Throwable, Long] => Unit]()
 
-    private[UringSystem] def getSqe(cb: Either[Throwable, Int] => Unit): UringSubmissionQueue = {
+    private[this] val usedIds = new java.util.BitSet()
+
+    private[UringSystem] def getSqe(cb: Either[Throwable, Long] => Unit): UringSubmissionQueue = {
       pendingSubmissions = true
+
+      val id = usedIds.nextClearBit(0)
+      usedIds.set(id)
+      callbacks.put(id, cb)
+
       val sqe = ring.ioUringSubmissionQueue()
-      sqe.setData(cb) // TODO: Implement setData()
-      callbacks.add(cb)
+      sqe.setData(cb)
+
       sqe
     }
 
@@ -132,7 +141,46 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty()
 
-    private[UringSystem] def poll(nanos: Long): Boolean = ???
+    private[UringSystem] def poll(nanos: Long): Boolean = {
+      if (pendingSubmissions) {
+        ring.submit()
+      }
+
+      val sqe = ring.ioUringSubmissionQueue()
+      val cqe = ring.ioUringCompletionQueue()
+
+      val completionQueueCallback = new UringCompletionQueueCallback {
+        override def handle(res: Int, flags: Int, data: Long): Unit = {
+          println(s"Completion event flag: $flags")
+
+          val callback = sqe.userData(data).asInstanceOf[Either[IOException, Long] => Unit]
+          if (res < 0) {
+            callback(Left(new IOException("Error in completion queue entry")))
+          } else {
+            callback(Right(res.toLong))
+          }
+        }
+      }
+
+      // Check if there are any completions ready to be processed
+      if (cqe.hasCompletions()) {
+        val processedCount = cqe.process(completionQueueCallback)
+        // Return true if any completion events were processed
+        processedCount > 0
+      } else if (nanos > 0) {
+        // If a timeout is specified, block until at least one completion is ready
+        // or the timeout expires
+        cqe.ioUringWaitCqe()
+
+        // Check again if there are completions after waiting
+        val processedCount = cqe.process(completionQueueCallback)
+        // Return true if any completion events were processed
+        processedCount > 0
+      } else {
+        // No completions and no timeout specified
+        false
+      }
+    }
 
   }
 
