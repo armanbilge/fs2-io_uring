@@ -16,13 +16,21 @@
 
 package io.netty.incubator.channel.uring
 
+/**
+  * The UringCompletionQueue class represents a completion queue for the io_uring subsystem in the Netty library.
+  * It provides methods to interact with the completion queue, such as checking for completions, processing completions,
+  * waiting for completions, and accessing the underlying ring buffer.
+  * 
+  * @param ring The RingBuffer associated with the completion queue.
+  */
 class UringCompletionQueue(private val ring: RingBuffer) {
 
+  // The IOUringCompletionQueue instance associated with the ring.
   private val completionQueue: IOUringCompletionQueue = ring.ioUringCompletionQueue()
 
-  def hashCompletitions(): Boolean = completionQueue.hasCompletions()
+  def hasCompletions(): Boolean = completionQueue.hasCompletions()
 
-  def processs(cb: IOUringCompletionQueueCallback): Int = completionQueue.process(cb)
+  def process(cb: IOUringCompletionQueueCallback): Int = completionQueue.process(cb)
 
   def ioUringWaitCqe(): Unit = completionQueue.ioUringWaitCqe()
 
@@ -34,5 +42,11 @@ class UringCompletionQueue(private val ring: RingBuffer) {
 }
 
 object UringCompletionQueue {
+  /**
+    * Creates a new UringCompletionQueue instance associated with the specified RingBuffer.
+    *
+    * @param ring The RingBuffer associated with the completion queue.
+    * @return A new UringCompletionQueue instance.
+    */
   def apply(ring: RingBuffer): UringCompletionQueue = new UringCompletionQueue(ring)
 }
