@@ -16,9 +16,10 @@
 
 package io.netty.incubator.channel.uring
 
-import io.netty.util.internal.PlatformDependent
-
 import UringSubmissionQueue._
+import NativeAccess._
+import scala.collection.mutable.LongMap
+import java.io.IOException
 
 class UringSubmissionQueue(private val ring: RingBuffer) {
   private val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
@@ -102,21 +103,44 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
 
   def release(): Unit = submissionQueue.release()
 
-  def setData[A <: AnyRef](data: Long): Unit = {
-    // TODO: We need to set data in UringSystem.Poller.getSqe
-    // Update: Expose the tail go get access to the address and be able to manipulate the data
-    val ringMask: Int = submissionQueue.ringEntries - 1
-    val sqe: Long = submissionQueue.submissionQueueArrayAddress + (tail ++ & ringMask) * SQE_SIZE
-    PlatformDependent.putLong(sqe + SQE_USER_DATA_FIELD, data)
+  def encode(fd: Int, op: Byte, data: Short) = UserData.encode(fd, op, data)
+
+  private[this] val callbacks = new LongMap[Either[Throwable, Long] => Unit]()
+  var counter: Short = 0
+
+  def setData(cb: Either[Throwable, Long] => Unit): Boolean = {
+    val op: Byte = IORING_OP_POLL_WRITE
+    val flags: Int = 0
+    val rwFlags: Int = Native.POLLOUT
+    val fd: Int = 0
+    val bufferAddress: Long = 0
+    val length: Int = 0
+    val offset: Long = 0
+
+    counter = (counter + 1).toShort
+
+    val success: Boolean = enqueueSqe(
+      op,
+      flags,
+      rwFlags,
+      fd,
+      bufferAddress,
+      length,
+      offset,
+      counter
+    )
+    if (success) callbacks.update(encode(fd, op, counter), cb)
+    else
+      cb(Left(new IOException("Failed to enqueue")))
+
+    success
   }
 
-  def userData(): Long = {
-    // TODO: We need to access the userData in UringSystem.ApiImpl.exec
-    // Update: Expose the tail go get access to the address and be able to manipulate the data
-    val ringMask: Int = submissionQueue.ringEntries - 1
-    val sqe: Long = submissionQueue.submissionQueueArrayAddress + (tail ++ & ringMask) * SQE_SIZE
-    PlatformDependent.getLong(sqe + SQE_USER_DATA_FIELD)
-  }
+  def userData(data: Long): Either[Throwable, Long] => Unit =
+    callbacks.getOrElse(
+      data,
+      throw new NoSuchElementException(s"Callback not found for data: $data")
+    )
 
   def prepCancel(addr: Long, flags: Int): Boolean =
     enqueueSqe(IORING_OP_ASYNC_CANCEL, flags, 0, -1, addr, 0, 0, 0)
