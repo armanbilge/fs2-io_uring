@@ -30,9 +30,9 @@ import cats.effect.unsafe.PollingSystem
 
 import io.netty.incubator.channel.uring.UringRing
 import io.netty.incubator.channel.uring.UringSubmissionQueue
+import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueueCallback
 
-import java.util.concurrent.ConcurrentHashMap
 import java.io.IOException
 
 object UringSystem extends PollingSystem {
@@ -41,12 +41,13 @@ object UringSystem extends PollingSystem {
 
   type Api = Uring
 
-  type Address = Long
-
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
 
-  override def makePoller(): Poller =
-    new Poller(UringRing())
+  override def makePoller(): Poller = {
+    val ring = UringRing()
+
+    new Poller(ring)
+  }
 
   override def closePoller(poller: Poller): Unit = poller.close()
 
@@ -58,58 +59,55 @@ object UringSystem extends PollingSystem {
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
   private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
-    private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
+    private[this] val noopRelease: Long => IO[Unit] = _ => IO.unit
 
-    def call(prep: UringSubmissionQueue => Unit): IO[Int] =
+    def call(prep: UringSubmissionQueue => Unit): IO[Long] =
       exec(prep)(noopRelease)
 
-    def bracket(prep: UringSubmissionQueue => Unit)(release: Int => IO[Unit]): Resource[IO, Int] =
-      Resource.makeFull[IO, Int](poll => poll(exec(prep)(release(_))))(release(_))
+    def bracket(prep: UringSubmissionQueue => Unit)(release: Long => IO[Unit]): Resource[IO, Long] =
+      Resource.makeFull[IO, Long](poll => poll(exec(prep)(release(_))))(release(_))
 
-    private def exec(prep: UringSubmissionQueue => Unit)(release: Int => IO[Unit]): IO[Int] =
+    private def exec(prep: UringSubmissionQueue => Unit)(release: Long => IO[Unit]): IO[Long] =
       IO.cont {
-        new Cont[IO, Int, Int] {
+        new Cont[IO, Long, Long] {
           def apply[F[_]](implicit
               F: MonadCancelThrow[F]
-          ): (Either[Throwable, Long] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
-            F.uncancelable { poll =>
-              val submit = IO.async_[Long] { cb =>
-                register { ring =>
-                  val sqe = ring.getSqe(resume)
-                  prep(sqe)
-
-                  sqe.setData(cb)
-
-                  val userData = sqe.encode(0, 0, sqe.counter)
-
-                  cb(Right(userData))
+          ): (Either[Throwable, Long] => Unit, F[Long], IO ~> F) => F[Long] = {
+            (resume, get, lift) =>
+              F.uncancelable { poll =>
+                val submit = IO.async_[Long] { cb =>
+                  register { ring =>
+                    val sqe = ring.getSqe(resume)
+                    prep(sqe)
+                    val userData: Long = sqe.encode(0, 0, sqe.getData())
+                    cb(Right(userData))
+                  }
                 }
-              }
 
-              lift(submit)
-                .flatMap { addr =>
-                  F.onCancel(
-                    poll(get),
-                    lift(cancel(addr)).ifM(
-                      F.unit,
-                      get.flatMap { rtn =>
-                        if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
-                        else lift(release(rtn))
-                      }
+                lift(submit)
+                  .flatMap { addr =>
+                    F.onCancel(
+                      poll(get),
+                      lift(cancel(addr)).ifM(
+                        F.unit,
+                        get.flatMap { rtn =>
+                          if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn.toInt))
+                          else lift(release(rtn))
+                        }
+                      )
                     )
-                  )
-                }
-                .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
-            }
+                  }
+                  .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e.toInt)))
+              }
           }
         }
       }
 
-    private[this] def cancel(addr: Address): IO[Boolean] =
+    private[this] def cancel(addr: Long): IO[Boolean] =
       IO.async_[Long] { cb =>
         register { ring =>
           val sqe = ring.getSqe(cb)
-          val wasCancelled = sqe.prepCancel(addr, 0)
+          val wasCancelled: Boolean = sqe.prepCancel(addr, 0)
           cb(Right(if (wasCancelled) 1 else 0))
         }
       }.map(_ == 1)
@@ -119,63 +117,49 @@ object UringSystem extends PollingSystem {
   final class Poller private[UringSystem] (ring: UringRing) {
 
     private[this] var pendingSubmissions: Boolean = false
-    private[this] val callbacks: ConcurrentHashMap[Int, Either[Throwable, Long] => Unit] =
-      new ConcurrentHashMap[Int, Either[Throwable, Long] => Unit]()
-
-    private[this] val usedIds = new java.util.BitSet()
+    private[this] val sqe: UringSubmissionQueue = ring.ioUringSubmissionQueue()
+    private[this] val cqe: UringCompletionQueue = ring.ioUringCompletionQueue()
 
     private[UringSystem] def getSqe(cb: Either[Throwable, Long] => Unit): UringSubmissionQueue = {
       pendingSubmissions = true
-
-      val id = usedIds.nextClearBit(0)
-      usedIds.set(id)
-      callbacks.put(id, cb)
-
-      val sqe = ring.ioUringSubmissionQueue()
       sqe.setData(cb)
-
       sqe
     }
 
     private[UringSystem] def close(): Unit = ring.close()
 
-    private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty()
+    private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !sqe.callbacksIsEmpty()
+
+    private[UringSystem] def process(
+        completionQueueCallback: UringCompletionQueueCallback
+    ): Boolean =
+      cqe.process(completionQueueCallback) > 0 // True if any completion events were processed
 
     private[UringSystem] def poll(nanos: Long): Boolean = {
       if (pendingSubmissions) {
         ring.submit()
+        pendingSubmissions = false
       }
 
-      val sqe = ring.ioUringSubmissionQueue()
-      val cqe = ring.ioUringCompletionQueue()
-
       val completionQueueCallback = new UringCompletionQueueCallback {
-        override def handle(res: Int, flags: Int, data: Long): Unit = {
-          println(s"Completion event flag: $flags")
+        override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
+          val removedCallback = sqe.removeCallback(data)
 
-          val callback = sqe.userData(data).asInstanceOf[Either[IOException, Long] => Unit]
-          if (res < 0) {
-            callback(Left(new IOException("Error in completion queue entry")))
-          } else {
-            callback(Right(res.toLong))
+          removedCallback.foreach { cb =>
+            if (res < 0) cb(Left(new IOException("Error in completion queue entry")))
+            else cb(Right(res.toLong))
           }
         }
       }
 
-      // Check if there are any completions ready to be processed
       if (cqe.hasCompletions()) {
-        val processedCount = cqe.process(completionQueueCallback)
-        // Return true if any completion events were processed
-        processedCount > 0
+        process(completionQueueCallback)
       } else if (nanos > 0) {
-        // If a timeout is specified, block until at least one completion is ready
-        // or the timeout expires
+        // TODO sqe.addTimeout() and then:
         cqe.ioUringWaitCqe()
 
         // Check again if there are completions after waiting
-        val processedCount = cqe.process(completionQueueCallback)
-        // Return true if any completion events were processed
-        processedCount > 0
+        process(completionQueueCallback)
       } else {
         // No completions and no timeout specified
         false

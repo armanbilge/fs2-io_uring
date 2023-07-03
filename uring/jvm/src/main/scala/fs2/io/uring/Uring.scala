@@ -25,9 +25,9 @@ import io.netty.incubator.channel.uring.UringSubmissionQueue
 
 abstract class Uring private[uring] {
 
-  def call(prep: UringSubmissionQueue => Unit): IO[Int]
+  def call(prep: UringSubmissionQueue => Unit): IO[Long]
 
-  def bracket(prep: UringSubmissionQueue => Unit)(release: Int => IO[Unit]): Resource[IO, Int]
+  def bracket(prep: UringSubmissionQueue => Unit)(release: Long => IO[Unit]): Resource[IO, Long]
 }
 
 object Uring {
