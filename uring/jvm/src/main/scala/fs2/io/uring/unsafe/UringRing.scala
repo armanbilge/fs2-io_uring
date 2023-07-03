@@ -16,15 +16,13 @@
 
 package io.netty.incubator.channel.uring
 
-import io.netty.incubator.channel.uring.NativeAccess._
-import io.netty.incubator.channel.uring.UringCompletionQueue
-import io.netty.incubator.channel.uring.UringSubmissionQueue
+import io.netty.channel.unix.FileDescriptor
+import NativeAccess._
 
-/**
-  * The UringRing class represents a complete io_uring ring with both submission and completion queues.
+/** The UringRing class represents a complete io_uring ring with both submission and completion queues.
   * It provides methods to interact with the submission and completion queues, such as submitting operations,
   * accessing the file descriptor of the ring, and closing the ring.
-  * 
+  *
   * @param ringBuffer The RingBuffer associated with the io_uring ring.
   */
 class UringRing(private val ringBuffer: RingBuffer) {
@@ -34,83 +32,311 @@ class UringRing(private val ringBuffer: RingBuffer) {
   // The submission queue associated with the ring.
   private[this] val uringSubmissionQueue: UringSubmissionQueue = UringSubmissionQueue(ringBuffer)
 
-  /**
-    * Constructs a new UringRing instance with the default ring buffer size.
+  /** Constructs a new UringRing instance with the default ring buffer size.
     */
   def this() = this(createRingBuffer())
 
-  /**
-    * Constructs a new UringRing instance with the specified ring buffer size.
+  /** Constructs a new UringRing instance with the specified ring buffer size.
     *
     * @param size of the ring buffer.
     */
   def this(size: Int) = this(createRingBuffer(size))
 
-
-  /**
-    * Constructs a new UringRing instance with the specified ring buffer size and 
+  /** Constructs a new UringRing instance with the specified ring buffer size and
     * SQE (Submission Queue Entry) async threshold.
     *
     * @param size of the ring buffer.
-    * @param sqeAsyncThreshold The threshold value for determining whether an 
+    * @param sqeAsyncThreshold The threshold value for determining whether an
     * SQE should be submitted asynchronously.
     */
   def this(size: Int, sqeAsyncThreshold: Int) =
     this(createRingBuffer(size, sqeAsyncThreshold))
 
-  /**
-    * @return the UringCompletionQueue associated with the ring.
+  /** @return the UringCompletionQueue associated with the ring.
     */
   def ioUringCompletionQueue(): UringCompletionQueue = uringCompletionQueue
 
-  /**
-    * @return the UringSubmissionQueue associated with the ring.
+  /** @return the UringSubmissionQueue associated with the ring.
     */
   def ioUringSubmissionQueue(): UringSubmissionQueue = uringSubmissionQueue
 
-  /**
-    * Submits pending operations in the queue to the kernel for processing.
+  /** Submits pending operations in the queue to the kernel for processing.
     *
     * @return The number of operations successfully submitted.
     */
   def submit(): Int = uringSubmissionQueue.submit()
 
-  /**
-    * @return The file descriptor of the ring buffer.
+  /** @return The file descriptor of the ring buffer.
     */
   def fd(): Int = ringBuffer.fd()
 
-  /**
-    * Closes the ring, realising any associated resources.
+  /** Closes the ring, realising any associated resources.
     */
   def close(): Unit = ringBuffer.close()
 }
 
 object UringRing {
-  /**
-    * Creates a new UringRing instance with the default ring buffer size.
+
+  /** Creates a new UringRing instance with the default ring buffer size.
     *
     * @return a new UringRing instance.
     */
   def apply(): UringRing = new UringRing()
 
-  /**
-    * Creates a new UringRing instance with the specified ring buffer size.
+  /** Creates a new UringRing instance with the specified ring buffer size.
     *
     * @param size of the ring buffer.
     * @return a new UringRing instance.
     */
   def apply(size: Int): UringRing = new UringRing(size)
 
-  /**
-    * Creates a new UringRing instance with the specified ring buffer size 
+  /** Creates a new UringRing instance with the specified ring buffer size
     * and SQE (Submission Queue Entry) async threshold.
     *
     * @param size of the ring buffer.
     * @param sqeAsyncThreshold The threshold value for determining whether an SQE should be
     * submitted asynchronously.
-    * @return a new UringRing instance. 
+    * @return a new UringRing instance.
     */
   def apply(size: Int, sqeAsyncThreshold: Int): UringRing = new UringRing(size, sqeAsyncThreshold)
 
+}
+
+class UringSubmissionQueue(private val ring: RingBuffer) {
+  import UringSubmissionQueue._
+
+  private[this] val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
+
+  private[this] val callbacks =
+    scala.collection.mutable.Map[Long, Either[Throwable, Long] => Unit]()
+  private[this] var id: Short = 0
+
+  def enqueueSqe(
+      op: Byte,
+      flags: Int,
+      rwFlags: Int,
+      fd: Int,
+      bufferAddress: Long,
+      length: Int,
+      offset: Long,
+      data: Short
+  ): Boolean =
+    submissionQueue.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
+
+  def incrementHandledFds(): Unit = submissionQueue.incrementHandledFds()
+
+  def decrementHandledFds(): Unit = submissionQueue.decrementHandledFds()
+
+  def addTimeout(nanoSeconds: Long, extraData: Short): Boolean =
+    submissionQueue.addTimeout(nanoSeconds, extraData)
+
+  def addPollIn(fd: Int): Boolean = submissionQueue.addPollIn(fd)
+
+  def addPollRdHup(fd: Int): Boolean = submissionQueue.addPollRdHup(fd)
+
+  def addPollOut(fd: Int): Boolean = submissionQueue.addPollOut(fd)
+
+  def addRecvmsg(fd: Int, msgHdr: Long, extraData: Short): Boolean =
+    submissionQueue.addRecvmsg(fd, msgHdr, extraData)
+
+  def addSendmsg(fd: Int, msgHdr: Long, extraData: Short): Boolean =
+    submissionQueue.addSendmsg(fd, msgHdr, extraData)
+
+  def addSendmsg(fd: Int, msgHdr: Long, flags: Int, extraData: Short): Boolean =
+    submissionQueue.addSendmsg(fd, msgHdr, flags, extraData)
+
+  def addRead(fd: Int, bufferAddress: Long, pos: Int, limit: Int, extraData: Short): Boolean =
+    submissionQueue.addRead(fd, bufferAddress, pos, limit, extraData)
+
+  def addEventFdRead(
+      fd: Int,
+      bufferAddress: Long,
+      pos: Int,
+      limit: Int,
+      extraData: Short
+  ): Boolean = submissionQueue.addEventFdRead(fd, bufferAddress, pos, limit, extraData)
+
+  def addWrite(fd: Int, bufferAddress: Long, pos: Int, limit: Int, extraData: Short): Boolean =
+    submissionQueue.addWrite(fd, bufferAddress, pos, limit, extraData)
+
+  def addRecv(fd: Int, bufferAddress: Long, pos: Int, limit: Int, extraData: Short): Boolean =
+    submissionQueue.addRecv(fd, bufferAddress, pos, limit, extraData)
+
+  def addSend(fd: Int, bufferAddress: Long, pos: Int, limit: Int, extraData: Short): Boolean =
+    submissionQueue.addSend(fd, bufferAddress, pos, limit, extraData)
+
+  def addAccept(fd: Int, address: Long, addressLength: Long, extraData: Short): Boolean =
+    submissionQueue.addAccept(fd, address, addressLength, extraData)
+
+  def addPollRemove(fd: Int, pollMask: Int): Boolean = submissionQueue.addPollRemove(fd, pollMask)
+
+  def addConnect(
+      fd: Int,
+      socketAddress: Long,
+      socketAddressLength: Long,
+      extraData: Short
+  ): Boolean = submissionQueue.addConnect(fd, socketAddress, socketAddressLength, extraData)
+
+  def addWritev(fd: Int, iovecArrayAddress: Long, length: Int, extraData: Short): Boolean =
+    submissionQueue.addWritev(fd, iovecArrayAddress, length, extraData)
+
+  def addClose(fd: Int, extraData: Short): Boolean = submissionQueue.addClose(fd, extraData)
+
+  def submit(): Int = submissionQueue.submit()
+
+  def submitAndWait(): Int = submissionQueue.submitAndWait()
+
+  def count(): Long = submissionQueue.count()
+
+  def release(): Unit = submissionQueue.release()
+
+  def encode(fd: Int, op: Byte, data: Short) = UserData.encode(fd, op, data)
+
+  def setData(cb: Either[Throwable, Long] => Unit): Boolean = {
+    val op: Byte = IORING_OP_POLL_WRITE
+    val flags: Int = 0
+    val rwFlags: Int = Native.POLLOUT
+    val fd: Int = 0
+    val bufferAddress: Long = 0
+    val length: Int = 0
+    val offset: Long = 0
+
+    val wasEnqueue: Boolean = enqueueSqe(
+      op,
+      flags,
+      rwFlags,
+      fd,
+      bufferAddress,
+      length,
+      offset,
+      id
+    )
+
+    callbacks += (encode(0, 0, id) -> cb)
+    id = (id + 1).toShort
+
+    wasEnqueue
+  }
+
+  def getData(): Short = {
+    (id - 1).toShort
+  }
+
+  def removeCallback(data: Short): Option[Either[Throwable,Long] => Unit] = {
+    callbacks.remove(encode(0, 0, data))
+  }
+
+  def callbacksIsEmpty(): Boolean = callbacks.isEmpty
+
+  def prepCancel(addr: Long, flags: Int): Boolean =
+    enqueueSqe(IORING_OP_ASYNC_CANCEL, flags, 0, -1, addr, 0, 0, 0)
+
+}
+
+object UringSubmissionQueue {
+  final val SQE_SIZE = 64
+
+  final val IORING_OP_ASYNC_CANCEL: Byte = 14.toByte
+
+  final val SQE_USER_DATA_FIELD = 32
+
+  def apply(ring: RingBuffer): UringSubmissionQueue = new UringSubmissionQueue(ring)
+}
+
+/** The UringCompletionQueue class represents a completion queue for the io_uring subsystem in the Netty library.
+  * It provides methods to interact with the completion queue, such as checking for completions, processing completions,
+  * waiting for completions, and accessing the underlying ring buffer.
+  *
+  * @param ring The RingBuffer associated with the completion queue.
+  */
+class UringCompletionQueue(private val ring: RingBuffer) {
+
+  // The IOUringCompletionQueue instance associated with the ring.
+  private val completionQueue: IOUringCompletionQueue = ring.ioUringCompletionQueue()
+
+  def hasCompletions(): Boolean = completionQueue.hasCompletions()
+
+  def process(cb: IOUringCompletionQueueCallback): Int = completionQueue.process(cb)
+
+  def ioUringWaitCqe(): Unit = completionQueue.ioUringWaitCqe()
+
+  def ringAddress(): Long = completionQueue.ringAddress
+
+  def ringFd(): Int = completionQueue.ringFd
+
+  def ringSize(): Int = completionQueue.ringSize
+}
+
+object UringCompletionQueue {
+
+  /** Creates a new UringCompletionQueue instance associated with the specified RingBuffer.
+    *
+    * @param ring The RingBuffer associated with the completion queue.
+    * @return A new UringCompletionQueue instance.
+    */
+  def apply(ring: RingBuffer): UringCompletionQueue = new UringCompletionQueue(ring)
+}
+
+/** The UringCompletionQueueCallback trait defines a callback interface for handling completion events
+  * from the io_uring completion queue. It extends the IOUringCompletionQueueCallback trait and provides
+  * a method handle to process the completion event.
+  */
+trait UringCompletionQueueCallback extends IOUringCompletionQueueCallback {
+  def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit
+}
+
+/** Provides direct access to the native methods and functionalities
+  * of the io_uring subsystem in Netty.
+  */
+object NativeAccess {
+  val DEFAULT_RING_SIZE = Native.DEFAULT_RING_SIZE
+  val DEFAULT_IOSEQ_ASYNC_THRESHOLD = Native.DEFAULT_IOSEQ_ASYNC_THRESHOLD
+  val IORING_OP_POLL_WRITE = Native.IORING_OP_WRITE
+  val IORING_OP_POLL_READ = Native.IORING_OP_READ
+
+  val POLLIN = Native.POLLIN
+  val POLLOUT = Native.POLLOUT
+
+  def createRingBuffer(): RingBuffer =
+    createRingBuffer(DEFAULT_RING_SIZE, DEFAULT_IOSEQ_ASYNC_THRESHOLD)
+
+  def createRingBuffer(size: Int): RingBuffer =
+    createRingBuffer(size, DEFAULT_IOSEQ_ASYNC_THRESHOLD)
+
+  def createRingBuffer(size: Int, sqeAsyncThreshold: Int): RingBuffer =
+    Native.createRingBuffer(size, sqeAsyncThreshold)
+
+  def checkAllIOSupported(ringFd: Int): Unit =
+    Native.checkAllIOSupported(ringFd)
+
+  def checkKernelVersion(kernelVersion: String): Unit =
+    Native.checkKernelVersion(kernelVersion)
+
+  def ioUringEnter(ringFd: Int, toSubmit: Int, minComplete: Int, flags: Int): Int =
+    Native.ioUringEnter(ringFd, toSubmit, minComplete, flags)
+
+  def eventFdWrite(fd: Int, value: Long): Unit =
+    Native.eventFdWrite(fd, value)
+
+  def newBlockingEventFd: FileDescriptor =
+    Native.newBlockingEventFd()
+
+  def ioUringExit(
+      submissionQueueArrayAddress: Long,
+      submissionQueueRingEntries: Int,
+      submissionQueueRingAddress: Long,
+      submissionQueueRingSize: Int,
+      completionQueueRingAddress: Long,
+      completionQueueRingSize: Int,
+      ringFd: Int
+  ): Unit =
+    Native.ioUringExit(
+      submissionQueueArrayAddress,
+      submissionQueueRingEntries,
+      submissionQueueRingAddress,
+      submissionQueueRingSize,
+      completionQueueRingAddress,
+      completionQueueRingSize,
+      ringFd
+    )
 }
