@@ -155,14 +155,12 @@ object UringSystem extends PollingSystem {
       if (cqe.hasCompletions()) {
         process(completionQueueCallback)
       } else if (nanos > 0) {
-        // TODO sqe.addTimeout() and then:
+        sqe.addTimeout(nanos, 0) 
+        ring.submit()
         cqe.ioUringWaitCqe()
-
-        // Check again if there are completions after waiting
-        process(completionQueueCallback)
+        process(completionQueueCallback) 
       } else {
-        // No completions and no timeout specified
-        false
+        false 
       }
     }
 
