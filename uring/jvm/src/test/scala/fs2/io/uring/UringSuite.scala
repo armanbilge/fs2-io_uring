@@ -16,10 +16,19 @@
 
 package fs2.io.uring
 
-import cats.effect.unsafe.IORuntimes
 import munit.CatsEffectSuite
+
+import fs2.io.uring.unsafe.UringSystem
+import cats.effect.unsafe.IORuntimeBuilder
 
 abstract class UringSuite extends CatsEffectSuite {
 
-  override lazy val munitIORuntime = IORuntime.global
+  override lazy val munitIORuntime = {
+    val builder = IORuntimeBuilder()
+
+    builder.setPollingSystem(UringSystem)
+    // We can set other components as well: Compute Execution Context, Scheduler, Config, ... 
+    
+    builder.build()
+  }
 }
