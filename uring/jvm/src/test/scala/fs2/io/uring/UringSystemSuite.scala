@@ -17,36 +17,24 @@
 package fs2.io.uring
 
 import cats.effect.IO
-import fs2.io.uring.unsafe.uring._
 
-import io.netty.incubator.channel.uring.UringSubmissionQueue
+import fs2.io.uring.UringSuite
 
-class UringSystemSuite extends UringSuite {
+class UringSystemSuit extends UringSuite {
 
-  test("successful submission") {
-    val buffer = ByteBuffer.allocate(256)
-    buffer.put("Hello, Uring!".getBytes)
-    
-    var submissionSuccessful = false
-
-    // Perform the operation
-    val result: IO[Int] = Uring.get[IO].flatMap { ring =>
-      ring.call { submissionQueue =>
-        val fd = 0 //
-        val bufferAddress = buffer.array()
-        val pos = 0
-        val limit = buffer.remaining()
-        val extraData: Short = 0
-        
-        if (submissionQueue.addWrite(fd, bufferAddress, pos, limit, extraData)) {
-          submissionQueue.submit()
-          submissionSuccessful = true
+  test("submission") {
+    Uring
+      .get[IO]
+      .flatMap { ring =>
+        ring.call { sqe =>
+          sqe.submit()
+          ()
         }
       }
-    }
-    result.unsafeRunSync()
-    assert(submissionSuccessful)
+      .assertEquals(0.toLong)
   }
+
+  test("successful submission") {}
 
   test("failed submission") {}
 
