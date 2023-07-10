@@ -27,8 +27,7 @@ abstract class UringSuite extends CatsEffectSuite {
     val builder = IORuntimeBuilder()
 
     builder.setPollingSystem(UringSystem)
-    // We can set other components as well: Compute Execution Context, Scheduler, Config, ... 
-    
+
     builder.build()
   }
 }
