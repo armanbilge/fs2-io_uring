@@ -104,12 +104,12 @@ object UringSystem extends PollingSystem {
         ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
           F.uncancelable { poll =>
             println("[EXEC]: Entering exec")
+            println("THREAD:" + Thread.currentThread().getName)
             val submit: IO[Short] = IO.async_[Short] { cb =>
               register { ring =>
                 val id = ring.getSqe(resume)
                 val sq: UringSubmissionQueue = ring.getSq()
                 sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
-                // sq.submit()
                 cb(Right(id))
                 println("[EXEC]: Leaving exec")
               }
@@ -136,7 +136,9 @@ object UringSystem extends PollingSystem {
       }
     }
 
-    private[this] def cancel(id: Short): IO[Boolean] =
+    private[this] def cancel(
+        id: Short
+    ): IO[Boolean] = // TODO: EnqueueSqe with CANCEL ASYNC instead of just removing the callback from the map (What if it is already in the kernel)
       IO.async_[Boolean] { cb =>
         register { ring =>
           val wasCancel = ring.removeCallback(id)
@@ -153,7 +155,7 @@ object UringSystem extends PollingSystem {
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Map[Short, Either[Throwable, Int] => Unit] =
       Map.empty[Short, Either[Throwable, Int] => Unit]
-    private[this] val ids = BitSet(Short.MaxValue + 1)
+    private[this] val ids = BitSet(Short.MaxValue + 1) // TODO: remove BitSet and use a simply short
     private[this] var lastUsedId: Int = -1
 
     private[this] def getUniqueId(): Short = {
@@ -228,7 +230,10 @@ object UringSystem extends PollingSystem {
       if (cq.hasCompletions()) {
         process(completionQueueCallback)
       } else if (nanos > 0) {
-        sq.addTimeout(nanos, 0)
+        sq.addTimeout(
+          nanos,
+          0
+        ) // TODO: Check why they do it in this way instead of Scala Native way
         ring.submit()
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
