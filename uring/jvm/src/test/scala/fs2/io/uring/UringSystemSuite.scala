@@ -17,6 +17,7 @@
 package fs2.io.uring
 
 import cats.effect.IO
+import cats.syntax.parallel._
 
 import fs2.io.uring.UringSuite
 
@@ -39,7 +40,51 @@ class UringSystemSuit extends UringSuite {
         ring.call(op, flags, rwFlags, fd, bufferAddress, length, offset)
       }
       .assertEquals(0)
+  }
 
+  test("Parallel submission") {
+    val IORING_OP_NOP: Byte = 0
+
+    val op: Byte = IORING_OP_NOP
+    val flags: Int = 0
+    val rwFlags: Int = 0
+    val fd: Int = -1
+    val bufferAddress: Long = 0
+    val length: Int = 0
+    val offset: Long = 0
+
+    val calls: List[IO[Int]] = List.fill(300)(
+      Uring
+        .get[IO]
+        .flatMap { ring =>
+          ring.call(op, flags, rwFlags, fd, bufferAddress, length, offset)
+        }
+    )
+
+    val test: IO[List[Int]] = calls.parSequence
+
+    test.map(results => assert(results.forall(_ == 0)))
+  }
+
+  test("Multiple parallel submission") {
+    val IORING_OP_NOP: Byte = 0
+    val op: Byte = IORING_OP_NOP
+    val flags: Int = 0
+    val rwFlags: Int = 0
+    val fd: Int = -1
+    val bufferAddress: Long = 0
+    val length: Int = 0
+    val offset: Long = 0
+
+    val calls: List[IO[List[Int]]] = List.fill(100)(
+      Uring.get[IO].flatMap { ring =>
+        ring.call(op, flags, rwFlags, fd, bufferAddress, length, offset).replicateA(50)
+      }
+    )
+
+    val test: IO[List[List[Int]]] = calls.parSequence
+
+    test.map(listOfList => assert(listOfList.flatten.forall(_ == 0)))
   }
 
   test("successful submission") {}
