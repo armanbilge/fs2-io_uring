@@ -25,7 +25,7 @@ import NativeAccess._
   *
   * @param ringBuffer The RingBuffer associated with the io_uring ring.
   */
-class UringRing(private val ringBuffer: RingBuffer) {
+final class UringRing(private val ringBuffer: RingBuffer) {
   // The completion queue associated with the ring.
   private[this] val uringCompletionQueue: UringCompletionQueue = UringCompletionQueue(ringBuffer)
 
@@ -103,13 +103,8 @@ object UringRing {
 }
 
 class UringSubmissionQueue(private val ring: RingBuffer) {
-  import UringSubmissionQueue._
 
   private[this] val submissionQueue: IOUringSubmissionQueue = ring.ioUringSubmissionQueue()
-
-  private[this] val callbacks =
-    scala.collection.mutable.Map[Long, Either[Throwable, Long] => Unit]()
-  private[this] var id: Short = 0
 
   def enqueueSqe(
       op: Byte,
@@ -190,9 +185,7 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
 
   def release(): Unit = submissionQueue.release()
 
-  def encode(fd: Int, op: Byte, data: Short) = UserData.encode(fd, op, data)
-
-  def setData(cb: Either[Throwable, Long] => Unit): Boolean = {
+  def setData(id: Short): Boolean = {
     val op: Byte = IORING_OP_POLL_WRITE
     val flags: Int = 0
     val rwFlags: Int = Native.POLLOUT
@@ -212,25 +205,8 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
       id
     )
 
-    callbacks += (encode(0, 0, id) -> cb)
-    id = (id + 1).toShort
-
     wasEnqueue
   }
-
-  def getData(): Short = {
-    (id - 1).toShort
-  }
-
-  def removeCallback(data: Short): Option[Either[Throwable,Long] => Unit] = {
-    callbacks.remove(encode(0, 0, data))
-  }
-
-  def callbacksIsEmpty(): Boolean = callbacks.isEmpty
-
-  def prepCancel(addr: Long, flags: Int): Boolean =
-    enqueueSqe(IORING_OP_ASYNC_CANCEL, flags, 0, -1, addr, 0, 0, 0)
-
 }
 
 object UringSubmissionQueue {
@@ -339,4 +315,12 @@ object NativeAccess {
       completionQueueRingSize,
       ringFd
     )
+}
+
+object Encoder {
+  def encode(fd: Int, op: Byte, data: Short) = UserData.encode(fd, op, data)
+
+  def decode(res: Int, flags: Int, udata: Long, callback: IOUringCompletionQueueCallback) =
+    UserData.decode(res, flags, udata, callback)
+
 }
