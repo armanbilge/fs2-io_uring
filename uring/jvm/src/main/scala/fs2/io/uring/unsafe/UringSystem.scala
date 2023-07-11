@@ -108,7 +108,7 @@ object UringSystem extends PollingSystem {
                 val id = ring.getSqe(resume)
                 val sq: UringSubmissionQueue = ring.getSq()
                 sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
-                sq.submit()
+                // sq.submit()
                 cb(Right(id))
               }
             }
@@ -169,7 +169,7 @@ object UringSystem extends PollingSystem {
       id.toShort
     }
 
-    private[UringSystem] def releaseId(id: Short): Boolean = ids.remove(id.toInt)
+    private[this] def releaseId(id: Short): Boolean = ids.remove(id.toInt)
 
     private[UringSystem] def removeCallback(id: Short): Boolean = {
       val removed = callbacks.remove(id).isDefined
@@ -210,7 +210,25 @@ object UringSystem extends PollingSystem {
           }
       }
 
-      ???
+      if (nanos != 0) {
+        sq.addTimeout(nanos, getUniqueId())
+      }
+
+      if (pendingSubmissions) {
+        sq.submit()
+      }
+
+      val invokedCbs = processCqes(completionQueueCallback)
+
+      // if no completion events were processed, block until one is ready
+      if (!invokedCbs) {
+        cq.ioUringWaitCqe()
+        processCqes(completionQueueCallback)
+      }
+
+      pendingSubmissions = false
+
+      invokedCbs
     }
 
   }
