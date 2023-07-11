@@ -103,6 +103,7 @@ object UringSystem extends PollingSystem {
             F: MonadCancelThrow[F]
         ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
           F.uncancelable { poll =>
+            println("[EXEC]: Entering exec")
             val submit: IO[Short] = IO.async_[Short] { cb =>
               register { ring =>
                 val id = ring.getSqe(resume)
@@ -110,6 +111,7 @@ object UringSystem extends PollingSystem {
                 sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                 // sq.submit()
                 cb(Right(id))
+                println("[EXEC]: Leaving exec")
               }
             }
 
@@ -173,16 +175,21 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def removeCallback(id: Short): Boolean = {
       val removed = callbacks.remove(id).isDefined
-      if (removed) releaseId(id)
+      if (removed) {
+        println(s"REMOVED CB WITH ID: $id")
+        println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
+        releaseId(id)
+      }
       removed
     }
 
     private[UringSystem] def getSqe(cb: Either[Throwable, Int] => Unit): Short = {
+      println("GETTING SQE")
       pendingSubmissions = true
       val id: Short = getUniqueId()
-      if (sq.setData(id)) {
-        callbacks.put(id, cb)
-      }
+      callbacks.put(id, cb)
+      println(s"CALLBACK MAP UPDATED: $callbacks")
+
       id
     }
 
@@ -194,41 +201,40 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
-      def processCqes(
+      def process(
           completionQueueCallback: UringCompletionQueueCallback
       ): Boolean =
         cq.process(completionQueueCallback) > 0 // True if any completion events were processed
 
-      val completionQueueCallback = new UringCompletionQueueCallback {
-        override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit =
-          callbacks.get(data).foreach { cb =>
-            if (res < 0) {
-              cb(Left(new IOException(s"Error in completion queue entry")))
-            } else {
-              cb(Right(res))
-            }
-          }
-      }
-
-      if (nanos != 0) {
-        sq.addTimeout(nanos, getUniqueId())
-      }
-
       if (pendingSubmissions) {
-        sq.submit()
+        ring.submit()
+        pendingSubmissions = false
       }
 
-      val invokedCbs = processCqes(completionQueueCallback)
+      val completionQueueCallback = new UringCompletionQueueCallback {
+        override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
+          val removedCallback = callbacks.get(data)
 
-      // if no completion events were processed, block until one is ready
-      if (!invokedCbs) {
+          println(s"[HANDLE CQCB]: fd: $fd, res: $res, falgs: $flags, op: $op, data: $data")
+
+          removedCallback.foreach { cb =>
+            if (res < 0) cb(Left(new IOException("Error in completion queue entry")))
+            else cb(Right(res))
+            removeCallback(data)
+          }
+        }
+      }
+
+      if (cq.hasCompletions()) {
+        process(completionQueueCallback)
+      } else if (nanos > 0) {
+        sq.addTimeout(nanos, 0)
+        ring.submit()
         cq.ioUringWaitCqe()
-        processCqes(completionQueueCallback)
+        process(completionQueueCallback)
+      } else {
+        false
       }
-
-      pendingSubmissions = false
-
-      invokedCbs
     }
 
   }

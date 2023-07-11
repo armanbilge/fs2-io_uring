@@ -26,7 +26,7 @@ class UringSystemSuit extends UringSuite {
     Uring
       .get[IO]
       .flatMap { ring =>
-        val IORING_OP_NOP: Byte = 0 
+        val IORING_OP_NOP: Byte = 0
 
         val op: Byte = IORING_OP_NOP
         val flags: Int = 0
@@ -41,30 +41,6 @@ class UringSystemSuit extends UringSuite {
       .assertEquals(0)
 
   }
-
-//   IOURINGINLINE void io_uring_prep_nop(struct io_uring_sqe *sqe)
-// {
-// 	io_uring_prep_rw(IORING_OP_NOP, sqe, -1, NULL, 0, 0);
-// }
-
-// IOURINGINLINE void io_uring_prep_rw(int op, struct io_uring_sqe *sqe, int fd,
-// 				    const void *addr, unsigned len,
-// 				    __u64 offset)
-// {
-// 	sqe->opcode = (__u8) op;
-// 	sqe->flags = 0;
-// 	sqe->ioprio = 0;
-// 	sqe->fd = fd;
-// 	sqe->off = offset;
-// 	sqe->addr = (unsigned long) addr;
-// 	sqe->len = len;
-// 	sqe->rw_flags = 0;
-// 	sqe->buf_index = 0;
-// 	sqe->personality = 0;
-// 	sqe->file_index = 0;
-// 	sqe->addr3 = 0;
-// 	sqe->__pad2[0] = 0;
-// }
 
   test("successful submission") {}
 

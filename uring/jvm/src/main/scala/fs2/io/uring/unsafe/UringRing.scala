@@ -115,8 +115,13 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
       length: Int,
       offset: Long,
       data: Short
-  ): Boolean =
+  ): Boolean = {
+    println(
+      s"[SQ] Enqueuing a new Sqe with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+    )
     submissionQueue.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
+
+  }
 
   def incrementHandledFds(): Unit = submissionQueue.incrementHandledFds()
 
@@ -194,7 +199,7 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
     val length: Int = 0
     val offset: Long = 0
 
-    val wasEnqueue: Boolean = enqueueSqe(
+    val wasEnqueue: Boolean = !enqueueSqe(
       op,
       flags,
       rwFlags,
@@ -205,6 +210,7 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
       id
     )
 
+    println(s"We enqueued for the id: $id ? $wasEnqueue")
     wasEnqueue
   }
 }
