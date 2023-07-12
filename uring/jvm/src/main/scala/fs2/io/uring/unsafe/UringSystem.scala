@@ -218,11 +218,6 @@ object UringSystem extends PollingSystem {
       ): Boolean =
         cq.process(completionQueueCallback) > 0
 
-      if (pendingSubmissions) {
-        ring.submit()
-        pendingSubmissions = false
-      }
-
       val completionQueueCallback = new UringCompletionQueueCallback {
         override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
           val removedCallback = callbacks.get(data)
@@ -235,6 +230,11 @@ object UringSystem extends PollingSystem {
             removeCallback(data)
           }
         }
+      }
+
+      if (pendingSubmissions) {
+        ring.submit()
+        pendingSubmissions = false
       }
 
       if (cq.hasCompletions()) {
