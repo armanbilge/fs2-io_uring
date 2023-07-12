@@ -190,29 +190,8 @@ class UringSubmissionQueue(private val ring: RingBuffer) {
 
   def release(): Unit = submissionQueue.release()
 
-  def setData(id: Short): Boolean = {
-    val op: Byte = IORING_OP_POLL_WRITE
-    val flags: Int = 0
-    val rwFlags: Int = Native.POLLOUT
-    val fd: Int = 0
-    val bufferAddress: Long = 0
-    val length: Int = 0
-    val offset: Long = 0
-
-    val wasEnqueue: Boolean = !enqueueSqe(
-      op,
-      flags,
-      rwFlags,
-      fd,
-      bufferAddress,
-      length,
-      offset,
-      id
-    )
-
-    println(s"We enqueued for the id: $id ? $wasEnqueue")
-    wasEnqueue
-  }
+  def sendMsgRing(flags: Int, fd: Int, length: Int, data: Short): Boolean =
+    submissionQueue.enqueueSqe(OP.IORING_OP_MSG_RING, flags, 0, fd, 0, length, 0, data)
 }
 
 object UringSubmissionQueue {
@@ -329,4 +308,57 @@ object Encoder {
   def decode(res: Int, flags: Int, udata: Long, callback: IOUringCompletionQueueCallback) =
     UserData.decode(res, flags, udata, callback)
 
+}
+
+object OP {
+  val IORING_OP_NOP: Byte = 0
+  val IORING_OP_READV: Byte = 1
+  val IORING_OP_WRITEV: Byte = 2
+  val IORING_OP_FSYNC: Byte = 3
+  val IORING_OP_READ_FIXED: Byte = 4
+  val IORING_OP_WRITE_FIXED: Byte = 5
+  val IORING_OP_POLL_ADD: Byte = 6
+  val IORING_OP_POLL_REMOVE: Byte = 7
+  val IORING_OP_SYNC_FILE_RANGE: Byte = 8
+  val IORING_OP_SENDMSG: Byte = 9
+  val IORING_OP_RECVMSG: Byte = 10
+  val IORING_OP_TIMEOUT: Byte = 11
+  val IORING_OP_TIMEOUT_REMOVE: Byte = 12
+  val IORING_OP_ACCEPT: Byte = 13
+  val IORING_OP_ASYNC_CANCEL: Byte = 14
+  val IORING_OP_LINK_TIMEOUT: Byte = 15
+  val IORING_OP_CONNECT: Byte = 16
+  val IORING_OP_FALLOCATE: Byte = 17
+  val IORING_OP_OPENAT: Byte = 18
+  val IORING_OP_CLOSE: Byte = 19
+  val IORING_OP_FILES_UPDATE: Byte = 20
+  val IORING_OP_STATX: Byte = 21
+  val IORING_OP_READ: Byte = 22
+  val IORING_OP_WRITE: Byte = 23
+  val IORING_OP_FADVISE: Byte = 24
+  val IORING_OP_MADVISE: Byte = 25
+  val IORING_OP_SEND: Byte = 26
+  val IORING_OP_RECV: Byte = 27
+  val IORING_OP_OPENAT2: Byte = 28
+  val IORING_OP_EPOLL_CTL: Byte = 29
+  val IORING_OP_SPLICE: Byte = 30
+  val IORING_OP_PROVIDE_BUFFERS: Byte = 31
+  val IORING_OP_REMOVE_BUFFERS: Byte = 32
+  val IORING_OP_TEE: Byte = 33
+  val IORING_OP_SHUTDOWN: Byte = 34
+  val IORING_OP_RENAMEAT: Byte = 35
+  val IORING_OP_UNLINKAT: Byte = 36
+  val IORING_OP_MKDIRAT: Byte = 37
+  val IORING_OP_SYMLINKAT: Byte = 38
+  val IORING_OP_LINKAT: Byte = 39
+  val IORING_OP_MSG_RING: Byte = 40
+  val IORING_OP_FSETXATTR: Byte = 41
+  val IORING_OP_SETXATTR: Byte = 42
+  val IORING_OP_FGETXATTR: Byte = 43
+  val IORING_OP_GETXATTR: Byte = 44
+  val IORING_OP_SOCKET: Byte = 45
+  val IORING_OP_URING_CMD: Byte = 46
+  val IORING_OP_SEND_ZC: Byte = 47
+  val IORING_OP_SENDMSG_ZC: Byte = 48
+  val IORING_OP_LAST: Byte = 49
 }
