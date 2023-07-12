@@ -32,6 +32,7 @@ import io.netty.incubator.channel.uring.UringRing
 import io.netty.incubator.channel.uring.UringSubmissionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueueCallback
+import io.netty.incubator.channel.uring.OP
 
 import java.io.IOException
 
@@ -108,8 +109,7 @@ object UringSystem extends PollingSystem {
             val submit: IO[Short] = IO.async_[Short] { cb =>
               register { ring =>
                 val id = ring.getSqe(resume)
-                val sq: UringSubmissionQueue = ring.getSq()
-                sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
+                ring.getSq().enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                 cb(Right(id))
                 println("[EXEC]: Leaving exec")
               }
@@ -141,10 +141,8 @@ object UringSystem extends PollingSystem {
     ): IO[Boolean] =
       IO.async_[Boolean] { cb =>
         register { ring =>
-          val IORING_OP_ASYNC_CANCEL: Byte = 13
-
           val wasCancel: Boolean =
-            !ring.getSq().enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
+            !ring.getSq().enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
           cb(Right(wasCancel))
         }
       }
