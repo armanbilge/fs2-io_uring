@@ -109,7 +109,7 @@ object UringSystem extends PollingSystem {
             val submit: IO[Short] = IO.async_[Short] { cb =>
               register { ring =>
                 val id = ring.getSqe(resume)
-                ring.getSq().enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
+                ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                 cb(Right(id))
                 println("[EXEC]: Leaving exec")
               }
@@ -142,7 +142,7 @@ object UringSystem extends PollingSystem {
       IO.async_[Boolean] { cb =>
         register { ring =>
           val wasCancel: Boolean =
-            !ring.getSq().enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
+            !ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
           cb(Right(wasCancel))
         }
       }
@@ -196,7 +196,16 @@ object UringSystem extends PollingSystem {
       id
     }
 
-    private[UringSystem] def getSq(): UringSubmissionQueue = sq
+    private[UringSystem] def enqueueSqe(
+        op: Byte,
+        flags: Int,
+        rwFlags: Int,
+        fd: Int,
+        bufferAddress: Long,
+        length: Int,
+        offset: Long,
+        data: Short
+    ): Boolean = sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
 
     private[UringSystem] def close(): Unit = ring.close()
 
