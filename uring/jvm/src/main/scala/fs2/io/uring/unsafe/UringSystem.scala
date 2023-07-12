@@ -138,10 +138,13 @@ object UringSystem extends PollingSystem {
 
     private[this] def cancel(
         id: Short
-    ): IO[Boolean] = // TODO: EnqueueSqe with CANCEL ASYNC instead of just removing the callback from the map (What if it is already in the kernel)
+    ): IO[Boolean] =
       IO.async_[Boolean] { cb =>
         register { ring =>
-          val wasCancel = ring.removeCallback(id)
+          val IORING_OP_ASYNC_CANCEL: Byte = 13
+
+          val wasCancel: Boolean =
+            !ring.getSq().enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
           cb(Right(wasCancel))
         }
       }
@@ -155,7 +158,7 @@ object UringSystem extends PollingSystem {
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Map[Short, Either[Throwable, Int] => Unit] =
       Map.empty[Short, Either[Throwable, Int] => Unit]
-    private[this] val ids = BitSet(Short.MaxValue + 1) // TODO: remove BitSet and use a simply short
+    private[this] val ids = BitSet(Short.MaxValue + 1)
     private[this] var lastUsedId: Int = -1
 
     private[this] def getUniqueId(): Short = {
@@ -206,7 +209,7 @@ object UringSystem extends PollingSystem {
       def process(
           completionQueueCallback: UringCompletionQueueCallback
       ): Boolean =
-        cq.process(completionQueueCallback) > 0 // True if any completion events were processed
+        cq.process(completionQueueCallback) > 0
 
       if (pendingSubmissions) {
         ring.submit()
@@ -232,7 +235,7 @@ object UringSystem extends PollingSystem {
       } else if (nanos > 0) {
         sq.addTimeout(
           nanos,
-          0
+          getUniqueId()
         ) // TODO: Check why they do it in this way instead of Scala Native way
         ring.submit()
         cq.ioUringWaitCqe()
