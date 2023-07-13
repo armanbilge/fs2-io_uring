@@ -108,7 +108,6 @@ object UringSystem extends PollingSystem {
               val cancelId = ring.getSqe(cb)
               val encodedAddress = Encoder.encode(fd, op, id)
               ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, encodedAddress, 0, 0, cancelId)
-
               ()
             }
           }
@@ -165,11 +164,10 @@ object UringSystem extends PollingSystem {
     private[this] val callbacks: Map[Short, Either[Throwable, Int] => Unit] =
       Map.empty[Short, Either[Throwable, Int] => Unit]
     private[this] val ids = new BitSet(Short.MaxValue + 1)
-    private[this] var lastUsedId: Int = -1
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(lastUsedId)
-      lastUsedId = newId
+      val newId = ids.nextClearBit(0)
+      ids.set(newId)
       newId.toShort
     }
 
@@ -246,10 +244,12 @@ object UringSystem extends PollingSystem {
         ring.submit()
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
-      } else if (nanos == -1) {
-        cq.ioUringWaitCqe()
-        process(completionQueueCallback)
-      } else {
+      }
+      // else if (nanos == -1) { // TODO: Tests run forever from the begining due to the cq.ioUringWaitCqe()
+      //   cq.ioUringWaitCqe()
+      //   process(completionQueueCallback)
+      // }
+      else {
         false
       }
     }
