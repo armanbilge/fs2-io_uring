@@ -302,6 +302,13 @@ object NativeAccess {
     )
 }
 
+object Encoder {
+  def encode(fd: Int, op: Byte, data: Short): Long = UserData.encode(fd, op, data)
+
+  def decode(res: Int, flags: Int, udata: Long, callback: IOUringCompletionQueueCallback) =
+    UserData.decode(res, flags, udata, callback)
+}
+
 object OP {
   val IORING_OP_NOP: Byte = 0
   val IORING_OP_READV: Byte = 1

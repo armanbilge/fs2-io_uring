@@ -33,11 +33,12 @@ import io.netty.incubator.channel.uring.UringSubmissionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueueCallback
 import io.netty.incubator.channel.uring.OP
+import io.netty.incubator.channel.uring.Encoder
 
 import java.io.IOException
 
 import scala.collection.mutable.Map
-import scala.collection.mutable.BitSet
+import java.util.BitSet
 
 object UringSystem extends PollingSystem {
 
@@ -98,54 +99,61 @@ object UringSystem extends PollingSystem {
         bufferAddress: Long,
         length: Int,
         offset: Long
-    )(release: Int => IO[Unit]): IO[Int] = IO.cont {
-      new Cont[IO, Int, Int] {
-        def apply[F[_]](implicit
-            F: MonadCancelThrow[F]
-        ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
-          F.uncancelable { poll =>
-            println("[EXEC]: Entering exec")
-            println("THREAD:" + Thread.currentThread().getName)
-            val submit: IO[Short] = IO.async_[Short] { cb =>
-              register { ring =>
-                val id = ring.getSqe(resume)
-                ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
-                cb(Right(id))
-                println("[EXEC]: Leaving exec")
+    )(release: Int => IO[Unit]): IO[Int] = {
+
+      def cancel(id: Short): IO[Boolean] =
+        IO.uncancelable { _ =>
+          IO.async_[Int] { cb =>
+            register { ring =>
+              val cancelId = ring.getSqe(cb)
+              val encodedAddress = Encoder.encode(fd, op, id)
+              ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, encodedAddress, 0, 0, cancelId)
+
+              ()
+            }
+          }
+        }.map(_ == 0)
+
+      IO.cont {
+        new Cont[IO, Int, Int] {
+          def apply[F[_]](implicit
+              F: MonadCancelThrow[F]
+          ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
+            F.uncancelable { poll =>
+              println("[EXEC]: Entering exec")
+              println("THREAD:" + Thread.currentThread().getName)
+              val submit: IO[Short] = IO.async_[Short] { cb =>
+                register { ring =>
+                  val id = ring.getSqe(resume)
+                  ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
+                  cb(Right(id))
+                  println("[EXEC]: Leaving exec")
+                }
               }
+
+              lift(submit)
+                .flatMap { id =>
+                  F.onCancel(
+                    poll(get),
+                    lift(cancel(id)).ifM(
+                      F.unit,
+                      // if cannot cancel, fallback to get
+                      get.flatMap { rtn =>
+                        if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
+                        else lift(release(rtn))
+                      }
+                    )
+                  )
+                }
+                .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
             }
 
-            lift(submit)
-              .flatMap { id =>
-                F.onCancel(
-                  poll(get),
-                  lift(cancel(id)).ifM(
-                    F.unit,
-                    // if cannot cancel, fallback to get
-                    get.flatMap { rtn =>
-                      if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
-                      else lift(release(rtn))
-                    }
-                  )
-                )
-              }
-              .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
           }
-
         }
       }
+
     }
 
-    private[this] def cancel(
-        id: Short
-    ): IO[Boolean] =
-      IO.async_[Boolean] { cb =>
-        register { ring =>
-          val wasCancel: Boolean =
-            !ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, 0, 0, 0, id)
-          cb(Right(wasCancel))
-        }
-      }
   }
 
   final class Poller private[UringSystem] (ring: UringRing) {
@@ -156,25 +164,16 @@ object UringSystem extends PollingSystem {
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Map[Short, Either[Throwable, Int] => Unit] =
       Map.empty[Short, Either[Throwable, Int] => Unit]
-    private[this] val ids = BitSet(Short.MaxValue + 1)
+    private[this] val ids = new BitSet(Short.MaxValue + 1)
     private[this] var lastUsedId: Int = -1
 
     private[this] def getUniqueId(): Short = {
-      val id = (lastUsedId + 1 until Short.MaxValue)
-        .find(!ids.contains(_))
-        .getOrElse(
-          (0 until lastUsedId)
-            .find(!ids.contains(_))
-            .getOrElse(
-              throw new RuntimeException("No available IDs")
-            )
-        )
-      lastUsedId = id
-      ids.add(id)
-      id.toShort
+      val newId = ids.nextClearBit(lastUsedId)
+      lastUsedId = newId
+      newId.toShort
     }
 
-    private[this] def releaseId(id: Short): Boolean = ids.remove(id.toInt)
+    private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
 
     private[UringSystem] def removeCallback(id: Short): Boolean = {
       val removed = callbacks.remove(id).isDefined
@@ -243,8 +242,11 @@ object UringSystem extends PollingSystem {
         sq.addTimeout(
           nanos,
           getUniqueId()
-        ) // TODO: Check why they do it in this way instead of Scala Native way
+        )
         ring.submit()
+        cq.ioUringWaitCqe()
+        process(completionQueueCallback)
+      } else if (nanos == -1) {
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
       } else {
