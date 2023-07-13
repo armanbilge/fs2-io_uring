@@ -18,18 +18,19 @@ package fs2.io.uring
 
 import cats.effect.IO
 import cats.syntax.parallel._
+import scala.concurrent.duration._
 
 import fs2.io.uring.UringSuite
 
-class UringSystemSuit extends UringSuite {
+import io.netty.incubator.channel.uring.OP
+
+class UringSystem extends UringSuite {
 
   test("submission") {
     Uring
       .get[IO]
       .flatMap { ring =>
-        val IORING_OP_NOP: Byte = 0
-
-        val op: Byte = IORING_OP_NOP
+        val op: Byte = OP.IORING_OP_NOP
         val flags: Int = 0
         val rwFlags: Int = 0
         val fd: Int = -1
@@ -43,9 +44,8 @@ class UringSystemSuit extends UringSuite {
   }
 
   test("Parallel submission") {
-    val IORING_OP_NOP: Byte = 0
 
-    val op: Byte = IORING_OP_NOP
+    val op: Byte = OP.IORING_OP_NOP
     val flags: Int = 0
     val rwFlags: Int = 0
     val fd: Int = -1
@@ -67,8 +67,7 @@ class UringSystemSuit extends UringSuite {
   }
 
   test("Multiple parallel submission") {
-    val IORING_OP_NOP: Byte = 0
-    val op: Byte = IORING_OP_NOP
+    val op: Byte = OP.IORING_OP_NOP
     val flags: Int = 0
     val rwFlags: Int = 0
     val fd: Int = -1
@@ -85,6 +84,32 @@ class UringSystemSuit extends UringSuite {
     val test: IO[List[List[Int]]] = calls.parSequence
 
     test.map(listOfList => assert(listOfList.flatten.forall(_ == 0)))
+  }
+
+  test("cancellation") {
+    Uring
+      .get[IO]
+      .flatMap { ring =>
+        val IORING_OP_NOP: Byte = 0
+
+        val op: Byte = IORING_OP_NOP
+        val flags: Int = 0
+        val rwFlags: Int = 0
+        val fd: Int = -1
+        val bufferAddress: Long = 0
+        val length: Int = 0
+        val offset: Long = 0
+
+        val operation = ring.call(op, flags, rwFlags, fd, bufferAddress, length, offset)
+
+        val cancellation = for {
+          fiber <- operation.start
+          _ <- IO.sleep(1.second)
+          cancelled <- fiber.cancel
+        } yield cancelled
+
+        cancellation
+      }
   }
 
   test("successful submission") {}
