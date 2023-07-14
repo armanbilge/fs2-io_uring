@@ -105,9 +105,9 @@ object UringSystem extends PollingSystem {
         IO.uncancelable { _ =>
           IO.async_[Int] { cb =>
             register { ring =>
-              val cancelId = ring.getSqe(cb)
-              val encodedAddress = Encoder.encode(fd, op, id)
-              ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, encodedAddress, 0, 0, cancelId)
+              val cancelId = ring.getId(cb)
+              val opToCancel = Encoder.encode(fd, op, id)
+              ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, cancelId)
               ()
             }
           }
@@ -123,7 +123,7 @@ object UringSystem extends PollingSystem {
               println("THREAD:" + Thread.currentThread().getName)
               val submit: IO[Short] = IO.async_[Short] { cb =>
                 register { ring =>
-                  val id = ring.getSqe(resume)
+                  val id = ring.getId(resume)
                   ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                   cb(Right(id))
                   println("[EXEC]: Leaving exec")
@@ -173,23 +173,23 @@ object UringSystem extends PollingSystem {
 
     private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
 
-    private[UringSystem] def removeCallback(id: Short): Boolean = {
-      val removed = callbacks.remove(id).isDefined
-      if (removed) {
-        println(s"REMOVED CB WITH ID: $id")
-        println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
-        releaseId(id)
-      }
-      removed
-    }
+    private[this] def removeCallback(id: Short): Boolean =
+      callbacks
+        .remove(id)
+        .map { _ =>
+          println(s"REMOVED CB WITH ID: $id")
+          println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
+          releaseId(id)
+        }
+        .isDefined
 
-    private[UringSystem] def getSqe(cb: Either[Throwable, Int] => Unit): Short = {
-      println("GETTING SQE")
-      pendingSubmissions = true
+    private[UringSystem] def getId(cb: Either[Throwable, Int] => Unit): Short = {
       val id: Short = getUniqueId()
-      callbacks.put(id, cb)
-      println(s"CALLBACK MAP UPDATED: $callbacks")
 
+      pendingSubmissions = true
+      callbacks.put(id, cb)
+      println("GETTING ID")
+      println(s"CALLBACK MAP UPDATED: $callbacks")
       id
     }
 
@@ -217,13 +217,15 @@ object UringSystem extends PollingSystem {
 
       val completionQueueCallback = new UringCompletionQueueCallback {
         override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
-          val removedCallback = callbacks.get(data)
-
-          println(s"[HANDLE CQCB]: fd: $fd, res: $res, falgs: $flags, op: $op, data: $data")
-
-          removedCallback.foreach { cb =>
-            if (res < 0) cb(Left(new IOException("Error in completion queue entry")))
+          def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
+            if (res < 0)
+              cb(Left(new IOException(s"Error in completion queue entry: $res")))
             else cb(Right(res))
+
+          println(s"[HANDLE CQCB]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
+
+          callbacks.get(data).foreach { cb =>
+            handleCallback(res, cb)
             removeCallback(data)
           }
         }
