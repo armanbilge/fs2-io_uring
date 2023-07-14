@@ -23,11 +23,8 @@ import cats.effect.unsafe.IORuntimeBuilder
 
 abstract class UringSuite extends CatsEffectSuite {
 
-  override lazy val munitIORuntime = {
-    val builder = IORuntimeBuilder()
-
-    builder.setPollingSystem(UringSystem)
-
-    builder.build()
-  }
+  override lazy val munitIORuntime =
+    IORuntimeBuilder()
+      .setPollingSystem(UringSystem)
+      .build()
 }

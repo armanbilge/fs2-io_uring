@@ -23,7 +23,7 @@ import fs2.io.uring.UringSuite
 
 import io.netty.incubator.channel.uring.OP
 
-class UringSystem extends UringSuite {
+class UringSystemSuite extends UringSuite {
 
   test("submission") {
     Uring
