@@ -107,7 +107,7 @@ object UringSystem extends PollingSystem {
             register { ring =>
               val cancelId = ring.getId(cb)
               val opToCancel = Encoder.encode(fd, op, id)
-              ring.enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, cancelId)
+              ring.cancel(opToCancel, cancelId)
               ()
             }
           }
@@ -204,6 +204,12 @@ object UringSystem extends PollingSystem {
         data: Short
     ): Boolean = sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
 
+    private[UringSystem] def cancel(opToCancel: Long, id: Short) =
+      enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
+
+    private[UringSystem] def sendMsgRing(flags: Int, fd: Int, length: Int, data: Short): Boolean =
+      sq.sendMsgRing(flags, fd, length, data)
+
     private[UringSystem] def close(): Unit = ring.close()
 
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty
@@ -246,12 +252,14 @@ object UringSystem extends PollingSystem {
         ring.submit()
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
-      }
-      // else if (nanos == -1) { // TODO: Tests run forever from the begining due to the cq.ioUringWaitCqe()
-      //   cq.ioUringWaitCqe()
-      //   process(completionQueueCallback)
-      // }
-      else {
+      } else if (nanos == -1) { // TODO: Tests run forever due to the cq.ioUringWaitCqe()
+        if (pendingSubmissions) {
+          ring.ioUringSubmissionQueue().submitAndWait()
+          pendingSubmissions = false
+        }
+        // cq.ioUringWaitCqe()
+        process(completionQueueCallback)
+      } else {
         false
       }
     }
