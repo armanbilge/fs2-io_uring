@@ -134,13 +134,8 @@ final class UringSubmissionQueue(private[this] val ring: RingBuffer) {
       length: Int,
       offset: Long,
       data: Short
-  ): Boolean = {
-    println(
-      s"[SQ] Enqueuing a new Sqe with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
-    )
+  ): Boolean =
     submissionQueue.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
-
-  }
 
   /** Increment the number of handled file descriptors. */
   def incrementHandledFds(): Unit = submissionQueue.incrementHandledFds()

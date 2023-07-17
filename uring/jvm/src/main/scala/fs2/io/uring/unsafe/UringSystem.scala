@@ -44,6 +44,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
+  private val debug = false // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -63,6 +64,8 @@ object UringSystem extends PollingSystem {
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
+
+  def interrupt(poller: Poller, targetThread: Thread, targetPoller: Poller): Unit = ???
 
   private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
@@ -119,14 +122,11 @@ object UringSystem extends PollingSystem {
               F: MonadCancelThrow[F]
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
-              println("[EXEC]: Entering exec")
-              println("THREAD:" + Thread.currentThread().getName)
               val submit: IO[Short] = IO.async_[Short] { cb =>
                 register { ring =>
                   val id = ring.getId(resume)
                   ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                   cb(Right(id))
-                  println("[EXEC]: Leaving exec")
                 }
               }
 
@@ -177,8 +177,10 @@ object UringSystem extends PollingSystem {
       callbacks
         .remove(id)
         .map { _ =>
-          println(s"REMOVED CB WITH ID: $id")
-          println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
+          if (debug) {
+            println(s"REMOVED CB WITH ID: $id")
+            println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
+          }
           releaseId(id)
         }
         .isDefined
@@ -188,8 +190,10 @@ object UringSystem extends PollingSystem {
 
       pendingSubmissions = true
       callbacks.put(id, cb)
-      println("GETTING ID")
-      println(s"CALLBACK MAP UPDATED: $callbacks")
+      if (debug) {
+        println("GETTING ID")
+        println(s"CALLBACK MAP UPDATED: $callbacks")
+      }
       id
     }
 
@@ -202,7 +206,13 @@ object UringSystem extends PollingSystem {
         length: Int,
         offset: Long,
         data: Short
-    ): Boolean = sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
+    ): Boolean = {
+      if (debug)
+        println(
+          s"[SQ] Enqueuing a new Sqe with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+        )
+      sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
+    }
 
     private[UringSystem] def cancel(opToCancel: Long, id: Short) =
       enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
@@ -228,7 +238,10 @@ object UringSystem extends PollingSystem {
               cb(Left(new IOException(s"Error in completion queue entry: $res")))
             else cb(Right(res))
 
-          println(s"[HANDLE CQCB]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
+          if (
+            op != 11 && debug
+          ) // To prevent the constant printouts of timeout operation when NANOS == -1
+            println(s"[HANDLE CQCB]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
 
           callbacks.get(data).foreach { cb =>
             handleCallback(res, cb)
@@ -237,30 +250,28 @@ object UringSystem extends PollingSystem {
         }
       }
 
-      if (pendingSubmissions) {
-        ring.submit()
-        pendingSubmissions = false
+      def handlePendingSubmissions(submitAndWait: Boolean): Boolean = {
+        val submitted = if (submitAndWait) sq.submitAndWait() > 0 else sq.submit() > 0
+        if (submitted) pendingSubmissions = false
+        submitted
       }
 
-      if (cq.hasCompletions()) {
-        process(completionQueueCallback)
-      } else if (nanos > 0) {
-        sq.addTimeout(
-          nanos,
-          getUniqueId()
-        )
-        ring.submit()
+      def handleTimeoutAndQueue(nanos: Long, submitAndWait: Boolean): Boolean = {
+        sq.addTimeout(nanos, getUniqueId())
+        val submitted = handlePendingSubmissions(submitAndWait)
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
-      } else if (nanos == -1) { // TODO: Tests run forever due to the cq.ioUringWaitCqe()
-        if (pendingSubmissions) {
-          ring.ioUringSubmissionQueue().submitAndWait()
-          pendingSubmissions = false
-        }
-        // cq.ioUringWaitCqe()
-        process(completionQueueCallback)
-      } else {
-        false
+        submitted
+      }
+
+      nanos match {
+        case -1 =>
+          if (pendingSubmissions) handlePendingSubmissions(true)
+          else handleTimeoutAndQueue(-1, true)
+        case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
+        case _ =>
+          if (pendingSubmissions) handlePendingSubmissions(true)
+          else handleTimeoutAndQueue(nanos, false)
       }
     }
 
