@@ -84,13 +84,4 @@ class UringSystemSuite extends UringSuite {
 
     test.map(listOfList => assert(listOfList.flatten.forall(_ == 0)))
   }
-
-  test("successful submission") {}
-
-  test("failed submission") {}
-
-  test("polling without completions and no timeout") {}
-
-  test("polling with timeout and completions") {}
-
 }
