@@ -21,7 +21,7 @@ import cats.syntax.parallel._
 
 import fs2.io.uring.UringSuite
 
-import io.netty.incubator.channel.uring.OP
+import fs2.io.uring.unsafe.util.OP._
 
 class UringSystemSuite extends UringSuite {
 
@@ -29,7 +29,7 @@ class UringSystemSuite extends UringSuite {
     Uring
       .get[IO]
       .flatMap { ring =>
-        val op: Byte = OP.IORING_OP_NOP
+        val op: Byte = IORING_OP_NOP
         val flags: Int = 0
         val rwFlags: Int = 0
         val fd: Int = -1
@@ -44,7 +44,7 @@ class UringSystemSuite extends UringSuite {
 
   test("Parallel submission") {
 
-    val op: Byte = OP.IORING_OP_NOP
+    val op: Byte = IORING_OP_NOP
     val flags: Int = 0
     val rwFlags: Int = 0
     val fd: Int = -1
@@ -66,7 +66,7 @@ class UringSystemSuite extends UringSuite {
   }
 
   test("Multiple parallel submission") {
-    val op: Byte = OP.IORING_OP_NOP
+    val op: Byte = IORING_OP_NOP
     val flags: Int = 0
     val rwFlags: Int = 0
     val fd: Int = -1
