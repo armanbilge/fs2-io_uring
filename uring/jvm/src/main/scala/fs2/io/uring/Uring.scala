@@ -27,7 +27,7 @@ abstract class Uring private[uring] {
       op: Byte,
       flags: Int = 0,
       rwFlags: Int = 0,
-      fd: Int,
+      fd: Int = 0,
       bufferAddress: Long = 0,
       length: Int = 0,
       offset: Long = 0
@@ -37,7 +37,7 @@ abstract class Uring private[uring] {
       op: Byte,
       flags: Int = 0,
       rwFlags: Int = 0,
-      fd: Int,
+      fd: Int = 0,
       bufferAddress: Long = 0,
       length: Int = 0,
       offset: Long = 0
