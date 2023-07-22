@@ -32,13 +32,16 @@ import io.netty.incubator.channel.uring.UringRing
 import io.netty.incubator.channel.uring.UringSubmissionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueue
 import io.netty.incubator.channel.uring.UringCompletionQueueCallback
-import io.netty.incubator.channel.uring.OP
 import io.netty.incubator.channel.uring.Encoder
+
+import fs2.io.uring.unsafe.util.OP._
 
 import java.io.IOException
 
 import scala.collection.mutable.Map
 import java.util.BitSet
+
+// import org.slf4j.LoggerFactory
 
 object UringSystem extends PollingSystem {
 
@@ -214,11 +217,13 @@ object UringSystem extends PollingSystem {
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
 
-    private[UringSystem] def cancel(opToCancel: Long, id: Short) =
-      enqueueSqe(OP.IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
+    private[UringSystem] def cancel(opToCancel: Long, id: Short): Boolean =
+      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
 
-    private[UringSystem] def sendMsgRing(flags: Int, fd: Int, length: Int, data: Short): Boolean =
-      sq.sendMsgRing(flags, fd, length, data)
+    private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean =
+      enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, 0)
+
+    private[UringSystem] def getFd(): Int = ring.fd()
 
     private[UringSystem] def close(): Unit = ring.close()
 
