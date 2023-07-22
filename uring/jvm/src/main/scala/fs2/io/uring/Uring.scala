@@ -25,22 +25,22 @@ abstract class Uring private[uring] {
 
   def call(
       op: Byte,
-      flags: Int,
-      rwFlags: Int,
+      flags: Int = 0,
+      rwFlags: Int = 0,
       fd: Int,
-      bufferAddress: Long,
-      length: Int,
-      offset: Long
+      bufferAddress: Long = 0,
+      length: Int = 0,
+      offset: Long = 0
   ): IO[Int]
 
   def bracket(
       op: Byte,
-      flags: Int,
-      rwFlags: Int,
+      flags: Int = 0,
+      rwFlags: Int = 0,
       fd: Int,
-      bufferAddress: Long,
-      length: Int,
-      offset: Long
+      bufferAddress: Long = 0,
+      length: Int = 0,
+      offset: Long = 0
   )(release: Int => IO[Unit]): Resource[IO, Int]
 }
 
