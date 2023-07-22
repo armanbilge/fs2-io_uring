@@ -130,5 +130,7 @@ private[net] object UringSocket {
       Sync[F].delay(UnpooledByteBufAllocator.DEFAULT.directBuffer(defaultReadSize))
     )(buf => Sync[F].delay(if (buf.refCnt() > 0) { val _ = buf.release() }))
 
-  def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] = ???
+  def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] = 
+    /* TODO: Work on SocketAddressHelper before implementing this method */
+    ???
 }
