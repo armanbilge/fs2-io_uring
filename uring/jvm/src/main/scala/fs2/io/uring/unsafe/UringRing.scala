@@ -516,3 +516,43 @@ object Encoder {
   def decode(res: Int, flags: Int, udata: Long, callback: IOUringCompletionQueueCallback) =
     UserData.decode(res, flags, udata, callback)
 }
+
+final class UringMsgHdr {
+  def write(
+      memoryAddress: Long,
+      address: Long,
+      addressSize: Int,
+      iovAddress: Long,
+      iovLength: Int,
+      msgControlAddr: Long,
+      cmsgHdrDataAddress: Long,
+      segmentSize: Short
+  ): Unit =
+    MsgHdr.write(
+      memoryAddress,
+      address,
+      addressSize,
+      iovAddress,
+      iovLength,
+      msgControlAddr,
+      cmsgHdrDataAddress,
+      segmentSize
+    )
+}
+
+final class UringMsgHdrMemoryArray(capacity: Int) {
+    private[this] val msgHdrMemoryArray: MsgHdrMemoryArray = new MsgHdrMemoryArray(capacity)
+
+    def clear(): Unit = msgHdrMemoryArray.clear()
+
+    def capacity(): Int = msgHdrMemoryArray.capacity()
+
+    def length(): Int = msgHdrMemoryArray.length()
+
+    def release(): Unit = msgHdrMemoryArray.release()
+
+    def hdr(idx: Int): MsgHdrMemory = msgHdrMemoryArray.hdr(idx)
+
+    def nextHdr(): MsgHdrMemory = msgHdrMemoryArray.nextHdr()
+
+}
