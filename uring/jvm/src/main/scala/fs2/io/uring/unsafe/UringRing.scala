@@ -541,18 +541,27 @@ final class UringMsgHdr {
 }
 
 final class UringMsgHdrMemoryArray(capacity: Int) {
-    private[this] val msgHdrMemoryArray: MsgHdrMemoryArray = new MsgHdrMemoryArray(capacity)
+  private[this] val msgHdrMemoryArray: MsgHdrMemoryArray = new MsgHdrMemoryArray(capacity)
 
-    def clear(): Unit = msgHdrMemoryArray.clear()
+  def clear(): Unit = msgHdrMemoryArray.clear()
 
-    def capacity(): Int = msgHdrMemoryArray.capacity()
+  def capacity(): Int = msgHdrMemoryArray.capacity()
 
-    def length(): Int = msgHdrMemoryArray.length()
+  def length(): Int = msgHdrMemoryArray.length()
 
-    def release(): Unit = msgHdrMemoryArray.release()
+  def release(): Unit = msgHdrMemoryArray.release()
 
-    def hdr(idx: Int): MsgHdrMemory = msgHdrMemoryArray.hdr(idx)
+  def hdr(idx: Int): MsgHdrMemory = msgHdrMemoryArray.hdr(idx)
 
-    def nextHdr(): MsgHdrMemory = msgHdrMemoryArray.nextHdr()
+  def nextHdr(): MsgHdrMemory = msgHdrMemoryArray.nextHdr()
 
+}
+
+final class UringIov() {
+  def write(iovAddress: Long, bufferAddress: Long, length: Int): Unit =
+    Iov.write(iovAddress, bufferAddress, length)
+
+  def readBufferAddress(iovAddress: Long): Long = Iov.readBufferAddress(iovAddress)
+
+  def readBufferLength(iovAddress: Long): Int = Iov.readBufferLength(iovAddress)
 }
