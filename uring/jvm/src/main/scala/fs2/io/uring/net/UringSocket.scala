@@ -49,7 +49,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
     writeMutex: Mutex[F]
 )(implicit F: Async[F])
     extends Socket[F] {
-      
+
   private[this] def recv(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
@@ -121,7 +121,12 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
 private[net] object UringSocket {
 
-  def apply[F[_]: LiftIO](ring: Uring, linuxSocket: UringLinuxSocket, fd: Int, remote: SocketAddress[IpAddress])(implicit
+  def apply[F[_]: LiftIO](
+      ring: Uring,
+      linuxSocket: UringLinuxSocket,
+      fd: Int,
+      remote: SocketAddress[IpAddress]
+  )(implicit
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     for {
