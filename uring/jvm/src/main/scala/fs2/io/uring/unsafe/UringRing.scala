@@ -568,8 +568,7 @@ final class UringIov() {
   def readBufferLength(iovAddress: Long): Int = Iov.readBufferLength(iovAddress)
 }
 
-final class UringLinuxSocket(fd: Int) {
-  val socket: LinuxSocket = new LinuxSocket(fd)
+final class UringLinuxSocket(private[this] val socket: LinuxSocket) {
 
   def getLocalAddress(): InetSocketAddress = socket.localAddress()
 
@@ -578,5 +577,20 @@ final class UringLinuxSocket(fd: Int) {
   def family(): InternetProtocolFamily = socket.family()
 
   def isIpv6(): Boolean = socket.isIpv6()
+
+}
+
+object UringLinuxSocket {
+  def newSocketStream(): UringLinuxSocket = new UringLinuxSocket(LinuxSocket.newSocketStream())
+
+  def newSocketStream(ipv6: Boolean): UringLinuxSocket = new UringLinuxSocket(
+    LinuxSocket.newSocketStream(ipv6)
+  )
+
+  def newSocketDatagram(): UringLinuxSocket = new UringLinuxSocket(LinuxSocket.newSocketDgram())
+
+  def newSocketDatagram(ipv6: Boolean): UringLinuxSocket = new UringLinuxSocket(
+    LinuxSocket.newSocketDgram(ipv6)
+  )
 
 }
