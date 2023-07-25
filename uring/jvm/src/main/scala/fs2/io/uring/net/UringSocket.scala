@@ -1,3 +1,19 @@
+/*
+ * Copyright 2022 Arman Bilge
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fs2.io.uring.net
 
 import cats.effect.LiftIO
@@ -20,6 +36,7 @@ import fs2.io.uring.unsafe.util.OP._
 
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.UnpooledByteBufAllocator
+import io.netty.incubator.channel.uring.UringLinuxSocket
 
 private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
@@ -31,6 +48,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
     writeMutex: Mutex[F]
 )(implicit F: Async[F])
     extends Socket[F] {
+
+  private[this] val socket: UringLinuxSocket = new UringLinuxSocket(sockfd)
 
   private[this] def recv(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
@@ -76,7 +95,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
   def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(remoteAddress)
 
-  def localAddress: F[SocketAddress[IpAddress]] = UringSocket.getLocalAddress(sockfd)
+  def localAddress: F[SocketAddress[IpAddress]] =
+    F.delay(SocketAddress.fromInetSocketAddress(socket.getLocalAddress()))
 
   private[this] def send(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
@@ -129,8 +149,4 @@ private[net] object UringSocket {
     Resource.make(
       Sync[F].delay(UnpooledByteBufAllocator.DEFAULT.directBuffer(defaultReadSize))
     )(buf => Sync[F].delay(if (buf.refCnt() > 0) { val _ = buf.release() }))
-
-  def getLocalAddress[F[_]](fd: Int)(implicit F: Sync[F]): F[SocketAddress[IpAddress]] = 
-    /* TODO: Work on SocketAddressHelper before implementing this method */
-    ???
 }
