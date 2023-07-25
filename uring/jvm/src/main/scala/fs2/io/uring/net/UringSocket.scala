@@ -40,6 +40,7 @@ import io.netty.incubator.channel.uring.UringLinuxSocket
 
 private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
+    linuxSocket: UringLinuxSocket,
     sockfd: Int,
     remoteAddress: SocketAddress[IpAddress],
     buffer: ByteBuf,
@@ -48,12 +49,9 @@ private[net] final class UringSocket[F[_]: LiftIO](
     writeMutex: Mutex[F]
 )(implicit F: Async[F])
     extends Socket[F] {
-
-  private[this] val socket: UringLinuxSocket = new UringLinuxSocket(sockfd)
-
+      
   private[this] def recv(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
-
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
       for {
@@ -96,7 +94,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(remoteAddress)
 
   def localAddress: F[SocketAddress[IpAddress]] =
-    F.delay(SocketAddress.fromInetSocketAddress(socket.getLocalAddress()))
+    F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
 
   private[this] def send(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
@@ -123,14 +121,14 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
 private[net] object UringSocket {
 
-  def apply[F[_]: LiftIO](ring: Uring, fd: Int, remote: SocketAddress[IpAddress])(implicit
+  def apply[F[_]: LiftIO](ring: Uring, linuxSocket: UringLinuxSocket, fd: Int, remote: SocketAddress[IpAddress])(implicit
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     for {
       buffer <- createBuffer()
       readMutex <- Resource.eval(Mutex[F])
       writeMutex <- Resource.eval(Mutex[F])
-      socket = new UringSocket(ring, fd, remote, buffer, 8192, readMutex, writeMutex)
+      socket = new UringSocket(ring, linuxSocket, fd, remote, buffer, 8192, readMutex, writeMutex)
     } yield socket
 
   /** TODO: We need to choose between heap or direct buffer and pooled or unpooled buffer: (I feel that Direct/Unpooled is the right combination)

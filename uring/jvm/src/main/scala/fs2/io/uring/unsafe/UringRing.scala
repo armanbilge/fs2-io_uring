@@ -578,6 +578,8 @@ final class UringLinuxSocket(private[this] val socket: LinuxSocket) {
 
   def isIpv6(): Boolean = socket.isIpv6()
 
+  def fd(): Int = socket.intValue()
+
 }
 
 object UringLinuxSocket {
