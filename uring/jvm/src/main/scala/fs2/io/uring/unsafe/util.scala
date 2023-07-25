@@ -16,7 +16,29 @@
 
 package fs2.io.uring.unsafe
 
+import cats.effect.kernel.Sync
+import cats.effect.kernel.Resource
+import io.netty.buffer.UnpooledByteBufAllocator
+import io.netty.buffer.ByteBuf
+
 private[uring] object util {
+
+  /** TODO: We need to choose between heap or direct buffer and pooled or unpooled buffer: (I feel that Direct/Unpooled is the right combination)
+    *
+    *    - Heap Buffer: Buffer is backed by a byte array located in the JVM's heap. Convenient if we work with API's that requires byte arrays.
+    *                    However, reading/writing from I/O channels requires copying data between the JVM heap and the Native heap which is slow.
+    *
+    *    - Direct Buffer: Buffer is allocated on the Native heap. Read and writes from I/O channels can occur without copying any data which is faster.
+    *                    However, interacting with other Java APIs will require additional data copy. (REMEMBER: They are not subject to the JVM garbage collector, we have to free the memory)
+    *
+    *    - Pooled Buffer: pre-allocated in memory and reused as needed. It is faster but consumes a lot of memory (we need to conserve a pool of buffers).
+    *
+    *    - Unpooled Buffer: Allocated when we need them and deallocated when we are done. It may be slower but consume only the memory of the buffer that we are using.
+    */
+  def createBuffer[F[_]: Sync](size: Int): Resource[F, ByteBuf] =
+    Resource.make(
+      Sync[F].delay(UnpooledByteBufAllocator.DEFAULT.directBuffer(size))
+    )(buf => Sync[F].delay(if (buf.refCnt() > 0) { val _ = buf.release() }))
 
   /** Defines constants for various operation types supported by the io_uring interface.
     */

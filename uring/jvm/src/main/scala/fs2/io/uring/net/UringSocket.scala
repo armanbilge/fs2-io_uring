@@ -19,7 +19,6 @@ package fs2.io.uring.net
 import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
-import cats.effect.kernel.Sync
 import cats.effect.std.Mutex
 import cats.syntax.all._
 
@@ -32,10 +31,10 @@ import fs2.Stream
 import fs2.io.net.Socket
 
 import fs2.io.uring.Uring
+import fs2.io.uring.unsafe.util.createBuffer
 import fs2.io.uring.unsafe.util.OP._
 
 import io.netty.buffer.ByteBuf
-import io.netty.buffer.UnpooledByteBufAllocator
 import io.netty.incubator.channel.uring.UringLinuxSocket
 
 private[net] final class UringSocket[F[_]: LiftIO](
@@ -120,6 +119,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
 }
 
 private[net] object UringSocket {
+  private[this] val defaultReadSize = 8192
 
   def apply[F[_]: LiftIO](
       ring: Uring,
@@ -130,26 +130,10 @@ private[net] object UringSocket {
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     for {
-      buffer <- createBuffer()
+      buffer <- createBuffer(defaultReadSize)
       readMutex <- Resource.eval(Mutex[F])
       writeMutex <- Resource.eval(Mutex[F])
       socket = new UringSocket(ring, linuxSocket, fd, remote, buffer, 8192, readMutex, writeMutex)
     } yield socket
 
-  /** TODO: We need to choose between heap or direct buffer and pooled or unpooled buffer: (I feel that Direct/Unpooled is the right combination)
-    *
-    *    - Heap Buffer: Buffer is backed by a byte array located in the JVM's heap. Convenient if we work with API's that requires byte arrays.
-    *                    However, reading/writing from I/O channels requires copying data between the JVM heap and the Native heap which is slow.
-    *
-    *    - Direct Buffer: Buffer is allocated on the Native heap. Read and writes from I/O channels can occur without copying any data which is faster.
-    *                    However, interacting with other Java APIs will require additional data copy. (REMEMBER: They are not subject to the JVM garbage collector, we have to free the memory)
-    *
-    *    - Pooled Buffer: pre-allocated in memory and reused as needed. It is faster but consumes a lot of memory (we need to conserve a pool of buffers).
-    *
-    *    - Unpooled Buffer: Allocated when we need them and deallocated when we are done. It may be slower but consume only the memory of the buffer that we are using.
-    */
-  def createBuffer[F[_]: Sync](defaultReadSize: Int = 8192): Resource[F, ByteBuf] =
-    Resource.make(
-      Sync[F].delay(UnpooledByteBufAllocator.DEFAULT.directBuffer(defaultReadSize))
-    )(buf => Sync[F].delay(if (buf.refCnt() > 0) { val _ = buf.release() }))
 }
