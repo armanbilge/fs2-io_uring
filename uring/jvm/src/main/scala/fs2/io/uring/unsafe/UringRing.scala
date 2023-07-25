@@ -18,6 +18,8 @@ package io.netty.incubator.channel.uring
 
 import io.netty.channel.unix.FileDescriptor
 import NativeAccess._
+import java.net.InetSocketAddress
+import io.netty.channel.socket.InternetProtocolFamily
 
 /** Represents an io_uring Ring with both Submission Queue (SQ) and Completion Queue (CQ).
   *
@@ -564,4 +566,17 @@ final class UringIov() {
   def readBufferAddress(iovAddress: Long): Long = Iov.readBufferAddress(iovAddress)
 
   def readBufferLength(iovAddress: Long): Int = Iov.readBufferLength(iovAddress)
+}
+
+final class UringLinuxSocket(fd: Int) {
+  val socket: LinuxSocket = new LinuxSocket(fd)
+
+  def getLocalAddress(): InetSocketAddress = socket.localAddress()
+
+  def getRemoteAddress(): InetSocketAddress = socket.remoteAddress()
+
+  def family(): InternetProtocolFamily = socket.family()
+
+  def isIpv6(): Boolean = socket.isIpv6()
+
 }
