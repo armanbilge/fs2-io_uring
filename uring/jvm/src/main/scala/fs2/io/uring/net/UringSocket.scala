@@ -72,8 +72,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
           buffer.memoryAddress(),
           0,
           numBytes,
-          -1
-        ) // TODO: Replace -1 with MSG_WAITALL
+          0 // TODO: Replace this with MSG_WAITALL
+        ) 
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
           buffer.getBytes(0, arr)
@@ -109,8 +109,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
             buffer.memoryAddress(),
             0,
             bytes.size,
-            -1
-          ) // TODO: Replace -1 with MSG_NOSIGNAL
+            0 // TODO Replace this with MSG_NOSIGNAL
+          ) 
         } yield ()
       }
       .unlessA(bytes.isEmpty)

@@ -408,6 +408,8 @@ object NativeAccess {
 
   val SIZEOF_SOCKADDR_IN6 = Native.SIZEOF_SOCKADDR_IN6
 
+  val SIZEOF_SOCKADDR_IN = Native.SIZEOF_SOCKADDR_IN
+
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
     */
@@ -600,5 +602,6 @@ object UringLinuxSocket {
 }
 
 object UringSockaddrIn {
-  def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int = SockaddrIn.write(ipv6, memory, address)
+  def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int =
+    SockaddrIn.write(ipv6, memory, address)
 }

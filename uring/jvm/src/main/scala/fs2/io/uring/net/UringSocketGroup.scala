@@ -35,27 +35,43 @@ import fs2.io.uring.unsafe.util.OP._
 
 import io.netty.incubator.channel.uring.UringSockaddrIn
 import io.netty.incubator.channel.uring.UringLinuxSocket
+import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
 
-import java.net.Inet6Address
+import io.netty.buffer.ByteBuf
 
 private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
+
+  private[this] def createBufferAux(isIpv6: Boolean): Resource[F, ByteBuf] =
+    if (isIpv6) createBuffer(SIZEOF_SOCKADDR_IN6) else createBuffer(SIZEOF_SOCKADDR_IN)
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
     Resource.eval(Uring.get[F]).flatMap { ring =>
       Resource.eval(to.resolve).flatMap { address =>
-        openSocket(ring, address.host.isInstanceOf[Ipv6Address]).flatMap { linuxSocket =>
+        val isIpv6: Boolean = address.host.isInstanceOf[Ipv6Address]
+        openSocket(ring, isIpv6).flatMap { linuxSocket =>
           Resource.eval {
-            createBuffer(SIZEOF_SOCKADDR_IN6).use { buf =>
+            createBufferAux(isIpv6).use { buf =>
               val length: Int = UringSockaddrIn.write(
-                address.toInetSocketAddress.getAddress.isInstanceOf[Inet6Address],
+                isIpv6,
                 buf.memoryAddress(),
                 address.toInetSocketAddress
               )
-              ring
-                .call(IORING_OP_CONNECT, 0, 0, linuxSocket.fd(), buf.memoryAddress(), length, 0)
-                .to
 
+              println(
+                s"[CLIENT] address: ${address.toString()}, buffer: ${buf.toString()}, length: $length"
+              )
+              ring
+                .call(
+                  IORING_OP_CONNECT,
+                  0,
+                  0,
+                  linuxSocket.fd(),
+                  buf.memoryAddress(),
+                  0,
+                  length.toLong
+                )
+                .to
             }
           } *> UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
         }
