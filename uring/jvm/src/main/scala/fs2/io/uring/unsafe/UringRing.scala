@@ -19,6 +19,7 @@ package io.netty.incubator.channel.uring
 import io.netty.channel.unix.FileDescriptor
 import NativeAccess._
 import java.net.InetSocketAddress
+import java.net.SocketAddress
 import io.netty.channel.socket.InternetProtocolFamily
 
 /** Represents an io_uring Ring with both Submission Queue (SQ) and Completion Queue (CQ).
@@ -584,9 +585,17 @@ final class UringLinuxSocket(private[this] val socket: LinuxSocket) {
 
   def fd(): Int = socket.intValue()
 
+  def bind(socketAddress: SocketAddress): Unit = socket.bind(socketAddress)
+
+  def listen(backlog: Int): Unit = socket.listen(backlog)
+
+  def accept(addr: Array[Byte]): Int = socket.accept(addr)
+
 }
 
 object UringLinuxSocket {
+  def apply(fd: Int): UringLinuxSocket = new UringLinuxSocket(new LinuxSocket(fd))
+
   def newSocketStream(): UringLinuxSocket = new UringLinuxSocket(LinuxSocket.newSocketStream())
 
   def newSocketStream(ipv6: Boolean): UringLinuxSocket = new UringLinuxSocket(
