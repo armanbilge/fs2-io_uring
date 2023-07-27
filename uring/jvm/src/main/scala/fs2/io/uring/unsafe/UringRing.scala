@@ -411,6 +411,8 @@ object NativeAccess {
 
   val SIZEOF_SOCKADDR_IN = Native.SIZEOF_SOCKADDR_IN
 
+  val SOCK_NONBLOCK = Native.SOCK_NONBLOCK
+
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
     */
@@ -613,4 +615,7 @@ object UringLinuxSocket {
 object UringSockaddrIn {
   def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int =
     SockaddrIn.write(ipv6, memory, address)
+
+  def readIPv4(memory: Long, tmpArray: Array[Byte]): InetSocketAddress =
+    SockaddrIn.readIPv4(memory, tmpArray)
 }
