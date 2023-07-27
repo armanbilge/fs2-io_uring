@@ -39,6 +39,7 @@ import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
 
 import io.netty.buffer.ByteBuf
+import java.net.InetSocketAddress
 
 private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
@@ -73,7 +74,12 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                 )
                 .to
             }
-          } *> UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
+          } *> UringSocket(
+            ring,
+            linuxSocket,
+            linuxSocket.fd(),
+            address
+          )
         }
       }
     }
@@ -89,7 +95,67 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       port: Option[Port],
       options: List[SocketOption]
   ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] =
-    ???
+    Resource.eval(Uring.get[F]).flatMap { ring =>
+      for {
+        resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
+
+        isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
+
+        linuxSocket <- openSocket(ring, isIpv6)
+
+        localAddress <- Resource.eval {
+          val bindF = F.delay {
+            val socketAddress =
+              new InetSocketAddress(resolvedAddress.toString, port.getOrElse(port"0").value)
+            linuxSocket.bind(socketAddress)
+          }
+
+          val listenF = F.delay(linuxSocket.listen(65535))
+
+          bindF *> listenF *> F
+            .delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
+        }
+
+        sockets = Stream
+          .resource(createBufferAux(isIpv6))
+          .flatMap { buf =>
+            Stream.resource {
+              val accept =
+                ring
+                  .bracket(
+                    IORING_OP_ACCEPT,
+                    0,
+                    0,
+                    linuxSocket.fd(),
+                    buf.memoryAddress(),
+                    0,
+                    buf.capacity().toLong
+                  )(closeSocket(ring, _))
+                  .mapK(LiftIO.liftK)
+
+              val hostAndPort = buf.toString().split(":")
+              val host = hostAndPort(0)
+              val port = hostAndPort(1).toInt
+              val socketAddress = new InetSocketAddress(host, port)
+
+              val convert: F[SocketAddress[IpAddress]] = F
+                .delay(
+                  SocketAddress.fromInetSocketAddress(socketAddress)
+                )
+
+              accept
+                .flatMap { clientFd =>
+                  Resource.eval(convert).flatMap { remoteAddress =>
+                    UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
+                  }
+                }
+                .attempt
+                .map(_.toOption)
+            }.repeat
+          }
+
+      } yield (localAddress, sockets.unNone)
+    }
 
   private def openSocket(
       ring: Uring,
