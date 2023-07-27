@@ -47,7 +47,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false // True to printout operations
+  private val debug = true // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -166,10 +166,10 @@ object UringSystem extends PollingSystem {
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Map[Short, Either[Throwable, Int] => Unit] =
       Map.empty[Short, Either[Throwable, Int] => Unit]
-    private[this] val ids = new BitSet(Short.MaxValue + 1)
+    private[this] val ids = new BitSet(Short.MaxValue)
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(0)
+      val newId = ids.nextClearBit(1)
       ids.set(newId)
       newId.toShort
     }
@@ -262,7 +262,7 @@ object UringSystem extends PollingSystem {
       }
 
       def handleTimeoutAndQueue(nanos: Long, submitAndWait: Boolean): Boolean = {
-        sq.addTimeout(nanos, getUniqueId())
+        sq.addTimeout(nanos, 0)
         val submitted = handlePendingSubmissions(submitAndWait)
         cq.ioUringWaitCqe()
         process(completionQueueCallback)
@@ -273,7 +273,7 @@ object UringSystem extends PollingSystem {
         case -1 =>
           if (pendingSubmissions) handlePendingSubmissions(true)
           else handleTimeoutAndQueue(-1, true)
-        case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
+        case 0 | -1 => if (pendingSubmissions) handlePendingSubmissions(false) else false
         case _ =>
           if (pendingSubmissions) handlePendingSubmissions(true)
           else handleTimeoutAndQueue(nanos, false)
