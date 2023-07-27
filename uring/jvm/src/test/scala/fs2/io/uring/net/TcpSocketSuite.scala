@@ -25,8 +25,9 @@ import fs2.Chunk
 import fs2.text._
 
 import fs2.io.uring.UringSuite
+import cats.effect.kernel.Resource
 
-class TcpSocketSuite extends UringSuite {
+class TcpSocketSuit extends UringSuite {
 
   val sg = UringSocketGroup[IO]
 
@@ -55,6 +56,7 @@ class TcpSocketSuite extends UringSuite {
   val setup = for {
     serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
     (bindAddress, server) = serverSetup
+    _ <- Resource.eval(IO.delay(println(s"Bind address: $bindAddress")))
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
@@ -92,6 +94,21 @@ class TcpSocketSuite extends UringSuite {
         assertEquals(it.size.toLong, clientCount)
         assert(it.forall(_ == "fs2.rocks"))
       }
+  }
+
+  test("simple test") {
+    val message = Chunk.array("fs2.rocks".getBytes)
+
+    val test = Stream.resource(setup).flatMap { case ((server, cleints)) =>
+
+      val testServer = server.map { socket =>
+        Stream.chunk(message).through(socket.writes).onFinalize(socket.endOfInput)
+      }
+
+      testServer.flatten.drain
+    }
+
+    test.compile.resource.drain.useForever
   }
 
   test("readN yields chunks of the requested size") {
