@@ -273,7 +273,7 @@ object UringSystem extends PollingSystem {
         case -1 =>
           if (pendingSubmissions) handlePendingSubmissions(true)
           else handleTimeoutAndQueue(-1, true)
-        case 0 | -1 => if (pendingSubmissions) handlePendingSubmissions(false) else false
+        case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
         case _ =>
           if (pendingSubmissions) handlePendingSubmissions(true)
           else handleTimeoutAndQueue(nanos, false)
