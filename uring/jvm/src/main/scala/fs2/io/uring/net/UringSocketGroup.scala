@@ -40,6 +40,7 @@ import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
 
 import io.netty.buffer.ByteBuf
 import java.net.InetSocketAddress
+import io.netty.incubator.channel.uring.NativeAccess
 
 private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
@@ -99,6 +100,8 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       for {
         resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
 
+        _ <- Resource.eval(F.delay(println(s"Resolved Address: $resolvedAddress")))
+
         isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
 
         linuxSocket <- openSocket(ring, isIpv6)
@@ -116,16 +119,19 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
             .delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
         }
 
+        _ <- Resource.eval(F.delay(println(s"Local Address: $localAddress")))
+
         sockets = Stream
           .resource(createBufferAux(isIpv6))
           .flatMap { buf =>
             Stream.resource {
+
               val accept =
                 ring
                   .bracket(
                     IORING_OP_ACCEPT,
                     0,
-                    0,
+                    NativeAccess.SOCK_NONBLOCK,
                     linuxSocket.fd(),
                     buf.memoryAddress(),
                     0,
@@ -133,24 +139,27 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                   )(closeSocket(ring, _))
                   .mapK(LiftIO.liftK)
 
-              val hostAndPort = buf.toString().split(":")
-              val host = hostAndPort(0)
-              val port = hostAndPort(1).toInt
-              val socketAddress = new InetSocketAddress(host, port)
+              val test = UringSockaddrIn.readIPv4(buf.memoryAddress(), new Array[Byte](16))
+              val socketAddress = new InetSocketAddress(test.getHostString(), test.getPort())
 
               val convert: F[SocketAddress[IpAddress]] = F
                 .delay(
                   SocketAddress.fromInetSocketAddress(socketAddress)
                 )
 
-              accept
-                .flatMap { clientFd =>
-                  Resource.eval(convert).flatMap { remoteAddress =>
-                    UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
+              Resource.eval(F.delay(println(s"Socket Address: $socketAddress"))) *>
+                accept
+                  .flatMap { clientFd =>
+                    Resource.eval(convert).flatMap { remoteAddress =>
+                      Resource
+                        .eval(F.delay(println(s"NOW WE SHOULD HAVE THE ADDRESS: $remoteAddress")))
+                        .flatMap { _ =>
+                          UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
+                        }
+                    }
                   }
-                }
-                .attempt
-                .map(_.toOption)
+                  .attempt
+                  .map(_.toOption)
             }.repeat
           }
 
