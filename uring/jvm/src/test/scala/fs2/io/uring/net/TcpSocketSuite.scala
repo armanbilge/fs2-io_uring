@@ -77,52 +77,52 @@ class TcpSocketSuite extends UringSuite {
       writeRead.compile.lastOrError
         .assertEquals("HTTP/1.1 200 OK")
     }
-}
+  }
 
-test("jsonplaceholder post") {
-  sg.client(SocketAddress(host"jsonplaceholder.typicode.com", port"80")).use { socket =>
-    val msg =
-      """|POST /posts HTTP/1.1
+  test("jsonplaceholder post") {
+    sg.client(SocketAddress(host"jsonplaceholder.typicode.com", port"80")).use { socket =>
+      val msg =
+        """|POST /posts HTTP/1.1
          |Host: jsonplaceholder.typicode.com
          |Content-Type: application/json
-         |Content-Length: 69
+         |Content-Length: 44
          |
          |{"title": "foo", "body": "bar", "userId": 1}
          |""".stripMargin
 
-    val writeRead =
-      Stream(msg)
-        .through(utf8.encode[IO])
-        .through(socket.writes) ++
-        socket.reads
-          .through(utf8.decode[IO])
-          .through(lines)
-          .take(1)
+      val writeRead =
+        Stream(msg)
+          .through(utf8.encode[IO])
+          .through(socket.writes) ++
+          socket.reads
+            .through(utf8.decode[IO])
+            .through(lines)
+            .take(1)
 
-    writeRead.compile.lastOrError
-      .assertEquals("HTTP/1.1 201 Created")
+      writeRead.compile.lastOrError
+        .assertEquals("HTTP/1.1 201 Created")
+    }
   }
-}
 
   test("invalid address") {
-    sg.client(SocketAddress(host"invalid-address", port"80")).use(_ =>
-      IO.unit
-    ).intercept[IOException]
+    sg.client(SocketAddress(host"invalid-address", port"80"))
+      .use(_ => IO.unit)
+      .intercept[IOException]
   }
 
   test("write after close") {
     sg.client(SocketAddress(host"postman-echo.com", port"80")).use { socket =>
       val msg = "GET /get HTTP/1.1\nHost: postman-echo.com\n\n"
 
-      socket.endOfOutput >> 
-      Stream(msg)
-        .through(utf8.encode[IO])
-        .through(socket.writes)
-        .compile
-        .drain
-        .intercept[IOException]
+      socket.endOfOutput >>
+        Stream(msg)
+          .through(utf8.encode[IO])
+          .through(socket.writes)
+          .compile
+          .drain
+          .intercept[IOException]
     }
-}
+  }
 
   val setup = for {
     serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
@@ -132,7 +132,11 @@ test("jsonplaceholder post") {
   } yield server -> clients
 
   val echoServerResource: Resource[IO, (SocketAddress[IpAddress], Stream[IO, Socket[IO]])] =
-    UringSocketGroup[IO].serverResource(Some(Host.fromString("localhost").get), Some(port"51343"), Nil)
+    UringSocketGroup[IO].serverResource(
+      Some(Host.fromString("localhost").get),
+      Some(port"51343"),
+      Nil
+    )
 
   test("local echo server") {
     echoServerResource.use { case (_, serverStream) =>
@@ -148,24 +152,28 @@ test("jsonplaceholder post") {
               .through(lines)
               .head
 
-        val echoServer = serverStream.flatMap { socket =>
-          socket.reads
-            .through(utf8.decode[IO])
-            .through(lines)
-            .map(line => s"$line\n")
-            .through(utf8.encode[IO])
-            .through(socket.writes)
-        }.compile.drain
+        val echoServer = serverStream
+          .flatMap { socket =>
+            socket.reads
+              .through(utf8.decode[IO])
+              .through(lines)
+              .map(line => s"$line\n")
+              .through(utf8.encode[IO])
+              .through(socket.writes)
+          }
+          .compile
+          .drain
 
         echoServer.background.use(_ =>
-          IO.sleep(1.second) *> // Ensures that the server is ready before the client tries to connect
-          writeRead.compile.lastOrError
-            .assertEquals("Hello, echo server!")
+          IO.sleep(
+            1.second
+          ) *> // Ensures that the server is ready before the client tries to connect
+            writeRead.compile.lastOrError
+              .assertEquals("Hello, echo server!")
         )
       }
     }
   }
-
 
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
@@ -204,8 +212,12 @@ test("jsonplaceholder post") {
   }
 
   val socketGroup = UringSocketGroup[IO]
-  test("Start server and waot fpr a connection") {
-    val serverResource = socketGroup.serverResource(Some(Host.fromString("localhost").get), Some(Port.fromInt(0).get), List())
+  test("Start server and wait for a connection") {
+    val serverResource = socketGroup.serverResource(
+      Some(Host.fromString("localhost").get),
+      Some(Port.fromInt(0).get),
+      List()
+    )
 
     serverResource.use { case (localAddress, _) =>
       IO {
