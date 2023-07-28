@@ -138,6 +138,87 @@ class TcpSocketSuite extends UringSuite {
       Nil
     )
 
+  test("Start server and wait for a connection during 20 sec") {
+    val serverResource = sg.serverResource(
+      Some(Host.fromString("localhost").get),
+      Some(Port.fromInt(0).get),
+      List()
+    )
+
+    serverResource.use { case (localAddress, _) =>
+      IO {
+        println(s"Server started at $localAddress")
+        println(s"You can now connect to this server")
+      } *> IO.sleep(20.second)
+
+    }
+
+  }
+
+  test("Start server and connect client") {
+    val serverResource = sg.serverResource(
+      Some(Host.fromString("localhost").get),
+      Some(Port.fromInt(0).get),
+      List()
+    )
+
+    serverResource.use { case (localAddress, _) =>
+      IO {
+        println(s"Server started at $localAddress")
+      } *> IO.sleep(1.second) *>
+        sg.client(localAddress).use { _ =>
+          IO {
+            println(s"Client connected to $localAddress")
+            /// Connection has been established!
+          }
+        } *> IO.sleep(3.second)
+    }
+  }
+
+  test("Start server, connect client and echo") {
+    val serverResource = sg.serverResource(
+      Some(Host.fromString("localhost").get),
+      Some(Port.fromInt(0).get),
+      List()
+    )
+
+    serverResource.use { case (localAddress, serverStream) =>
+      val serverEcho = serverStream
+        .map { clientSocket =>
+          clientSocket.reads
+            .through(utf8.decode[IO])
+            .through(lines)
+            .flatMap(line =>
+              Stream.emit(line).through(utf8.encode[IO]).through(clientSocket.writes)
+            )
+            .compile
+            .drain
+            .start
+        }
+        .compile
+        .drain
+        .start
+
+      serverEcho *> // ServerStream throws the error!
+        IO.sleep(1.second) *>
+        sg.client(localAddress).use { socket =>
+          val msg = "Hello, server!"
+          val writeRead =
+            Stream(msg)
+              .through(utf8.encode[IO])
+              .through(socket.writes) ++
+              socket.reads
+                .through(utf8.decode[IO])
+                .through(lines)
+                .head
+          IO {
+            println(s"Client connected to $localAddress")
+            writeRead.compile.lastOrError.assertEquals(msg)
+          }
+        } *> IO.sleep(10.second)
+    }
+  }
+
   test("local echo server") {
     echoServerResource.use { case (_, serverStream) =>
       sg.client(SocketAddress(host"localhost", port"51343")).use { socket =>
@@ -209,24 +290,6 @@ class TcpSocketSuite extends UringSuite {
         assertEquals(it.size.toLong, clientCount)
         assert(it.forall(_ == "fs2.rocks"))
       }
-  }
-
-  val socketGroup = UringSocketGroup[IO]
-  test("Start server and wait for a connection") {
-    val serverResource = socketGroup.serverResource(
-      Some(Host.fromString("localhost").get),
-      Some(Port.fromInt(0).get),
-      List()
-    )
-
-    serverResource.use { case (localAddress, _) =>
-      IO {
-        println(s"Server started at $localAddress")
-        println(s"You can now connect to this server")
-      } *> IO.sleep(1.minute)
-
-    }
-
   }
 
   test("readN yields chunks of the requested size") {
