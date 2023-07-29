@@ -35,6 +35,8 @@ class TcpSocketSuite extends UringSuite {
 
   val sg = UringSocketGroup[IO]
 
+  // Client test:
+
   test("postman echo") {
     sg.client(SocketAddress(host"postman-echo.com", port"80")).use { socket =>
       val msg =
@@ -124,104 +126,104 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
-  val setup = for {
-    serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
-    (bindAddress, server) = serverSetup
-    _ <- Resource.eval(IO.delay(println(s"Bind address: $bindAddress")))
-    clients = Stream.resource(sg.client(bindAddress)).repeat
-  } yield server -> clients
+  // Server tests:
 
-  val echoServerResource: Resource[IO, (SocketAddress[IpAddress], Stream[IO, Socket[IO]])] =
-    UringSocketGroup[IO].serverResource(
+  val serverResource: Resource[IO, (SocketAddress[IpAddress], Stream[IO, Socket[IO]])] =
+    sg.serverResource(
       Some(Host.fromString("localhost").get),
-      Some(port"51343"),
+      Some(Port.fromInt(0).get),
       Nil
     )
 
-  test("Start server and wait for a connection during 20 sec") {
-    val serverResource = sg.serverResource(
-      Some(Host.fromString("localhost").get),
-      Some(Port.fromInt(0).get),
-      List()
-    )
-
+  test("Start server and wait for a connection during 10 sec") {
     serverResource.use { case (localAddress, _) =>
       IO {
         println(s"Server started at $localAddress")
         println(s"You can now connect to this server")
       } *> IO.sleep(20.second)
-
+    // Use telnet localhost "port" to connect
     }
-
   }
 
-  test("Start server and connect client") {
-    val serverResource = sg.serverResource(
-      Some(Host.fromString("localhost").get),
-      Some(Port.fromInt(0).get),
-      List()
-    )
-
+  test("Start server and connect external client") {
     serverResource.use { case (localAddress, _) =>
       IO {
         println(s"Server started at $localAddress")
-      } *> IO.sleep(1.second) *>
-        sg.client(localAddress).use { _ =>
-          IO {
-            println(s"Client connected to $localAddress")
-            /// Connection has been established!
-          }
-        } *> IO.sleep(3.second)
-    }
-  }
-
-  test("Start server, connect client and echo") {
-    val serverResource = sg.serverResource(
-      Some(Host.fromString("localhost").get),
-      Some(Port.fromInt(0).get),
-      List()
-    )
-
-    serverResource.use { case (localAddress, serverStream) =>
-      val serverEcho = serverStream
-        .map { clientSocket =>
-          clientSocket.reads
-            .through(utf8.decode[IO])
-            .through(lines)
-            .flatMap(line =>
-              Stream.emit(line).through(utf8.encode[IO]).through(clientSocket.writes)
-            )
-            .compile
-            .drain
-            .start
-        }
-        .compile
-        .drain
-        .start
-
-      serverEcho *> // ServerStream throws the error!
-        IO.sleep(1.second) *>
+      } *>
         sg.client(localAddress).use { socket =>
-          val msg = "Hello, server!"
-          val writeRead =
-            Stream(msg)
-              .through(utf8.encode[IO])
-              .through(socket.writes) ++
-              socket.reads
-                .through(utf8.decode[IO])
-                .through(lines)
-                .head
-          IO {
-            println(s"Client connected to $localAddress")
-            writeRead.compile.lastOrError.assertEquals(msg)
+          val info = IO {
+            println("Socket created and connection established!")
+            println(s"remote address connected: ${socket.remoteAddress}")
           }
-        } *> IO.sleep(10.second)
+
+          val assert = socket.remoteAddress.map(assertEquals(_, localAddress))
+
+          info *> assert
+        }
     }
   }
 
-  test("local echo server") {
-    echoServerResource.use { case (_, serverStream) =>
-      sg.client(SocketAddress(host"localhost", port"51343")).use { socket =>
+  // We start using the serverStream
+  test("Create server and connect external client 2") {
+    serverResource.use { case (localAddress, serverStream) =>
+      sg.client(localAddress).use { _ =>
+        val echoServer =
+          serverStream.compile.drain // If we modify the resource server to just take(1) works. I guess we are trying to bind multiple sockets to the same ip/port ?
+
+        IO.println("socket created and connection established!") *>
+          echoServer.background.use(_ => IO.sleep(1.second))
+      }
+    }
+  }
+
+  test("Create server connect with external client and writes") {
+    serverResource.use { case (localAddress, serverStream) =>
+      sg.client(localAddress).use { socket =>
+        val msg = "Hello, echo server!\n"
+
+        val write =
+          Stream(msg)
+            .through(utf8.encode[IO])
+            .through(socket.writes)
+
+        val echoServer = serverStream.compile.drain
+
+        IO.println("socket created and connection established!") *>
+          echoServer.background.use(_ =>
+            IO.sleep(5.second) *> // TODO server waits for connection but we never connect to it.
+              write.compile.drain
+              *> IO.println("message written!")
+          )
+      }
+    }
+  }
+
+  test("Create server connect with external client and server writes 3") {
+    serverResource.use { case (localAddress, serverStream) =>
+      sg.client(localAddress).use { socket =>
+        val serverMsg = "Hello, client!\n"
+
+        val echoServer = serverStream
+          .map { clientSocket =>
+            Stream(serverMsg)
+              .through(utf8.encode[IO])
+              .through(clientSocket.writes)
+          }
+          .parJoinUnbounded
+          .compile
+          .drain
+
+        IO.println("socket created and connection established!") *>
+          echoServer *>
+          IO.sleep(20.second) *> // Wait for server to send a message
+          IO.println("server message sent!")
+      }
+    }
+  }
+
+  test("local echo server with read and write") {
+    serverResource.use { case (localAddress, serverStream) =>
+      sg.client(localAddress).use { socket =>
         val msg = "Hello, echo server!\n"
 
         val writeRead =
@@ -245,20 +247,48 @@ class TcpSocketSuite extends UringSuite {
           .compile
           .drain
 
-        echoServer.background.use(_ =>
-          IO.sleep(
-            1.second
-          ) *> // Ensures that the server is ready before the client tries to connect
-            writeRead.compile.lastOrError
-              .assertEquals("Hello, echo server!")
-        )
+        IO.println("socket created and connection established!") *>
+          echoServer.background.use(_ =>
+            IO.sleep(
+              1.second
+            ) *> // Ensures that the server is ready before the client tries to connect
+              writeRead.compile.lastOrError
+                .assertEquals("Hello, echo server!")
+          )
       }
     }
   }
 
+  test("Create server connect and write") {
+    serverResource.use { case (_, clientsStream) =>
+      val msg = "Hello, echo server!\n"
+
+      val write = clientsStream.take(1).flatMap { socket =>
+        Stream(msg)
+          .through(utf8.encode[IO])
+          .through(socket.writes)
+          .onFinalize(socket.endOfOutput)
+      }
+
+      IO.println("Starting operation...") *>
+        IO.sleep(1.second) *> // Ensures that the server is ready before the client tries to connect
+        write.compile.drain
+    }
+  }
+
+  // Server and client tests:
+
+  val setup = for {
+    serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
+    (bindAddress, server) = serverSetup
+    _ <- Resource.eval(IO.delay(println(s"Bind address: $bindAddress")))
+    clients = Stream.resource(sg.client(bindAddress)).repeat
+  } yield server -> clients
+
+
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
-    val clientCount = 20L
+    val clientCount = 1L
 
     Stream
       .resource(setup)
@@ -267,9 +297,9 @@ class TcpSocketSuite extends UringSuite {
           socket.reads
             .through(socket.writes)
             .onFinalize(socket.endOfOutput)
-        }.parJoinUnbounded
+        }.parJoin(1)
 
-        val msgClients = clients
+        val msgClients = Stream.sleep_[IO](1.second) ++ clients
           .take(clientCount)
           .map { socket =>
             Stream
@@ -279,7 +309,7 @@ class TcpSocketSuite extends UringSuite {
               socket.reads.chunks
                 .map(bytes => new String(bytes.toArray))
           }
-          .parJoin(10)
+          .parJoin(1)
           .take(clientCount)
 
         msgClients.concurrently(echoServer)

@@ -55,12 +55,17 @@ private[net] final class UringSocket[F[_]: LiftIO](
     readMutex.lock.surround {
       for {
         _ <- F.delay(buffer.clear())
+
         readed <- recv(buffer.memoryAddress(), 0, maxBytes, 0)
+
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
           buffer.getBytes(0, arr)
           arr
         }
+
+        _ <- F.delay(println(s"[SOCKET] reading the array: ${bytes}"))
+
       } yield Option.when(readed > 0)(Chunk.array(bytes))
     }
 
@@ -68,12 +73,14 @@ private[net] final class UringSocket[F[_]: LiftIO](
     readMutex.lock.surround {
       for {
         _ <- F.delay(buffer.clear())
+
         readed <- recv(
           buffer.memoryAddress(),
           0,
           numBytes,
           0 // TODO: Replace this with MSG_WAITALL
-        ) 
+        )
+
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
           buffer.getBytes(0, arr)
@@ -105,12 +112,18 @@ private[net] final class UringSocket[F[_]: LiftIO](
             buffer.clear()
             buffer.writeBytes(bytes.toArray)
           }
+
+          _ <- F.delay(println(s"[SOCKET] writing in array: $bytes"))
+
           _ <- send(
             buffer.memoryAddress(),
             0,
             bytes.size,
             0 // TODO Replace this with MSG_NOSIGNAL
-          ) 
+          )
+
+          _ <- F.delay(println(s"[SOCKET] Message sent!"))
+
         } yield ()
       }
       .unlessA(bytes.isEmpty)

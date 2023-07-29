@@ -413,6 +413,8 @@ object NativeAccess {
 
   val SOCK_NONBLOCK = Native.SOCK_NONBLOCK
 
+  val SOCK_CLOEXEC = Native.SOCK_CLOEXEC
+
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
     */
@@ -618,4 +620,6 @@ object UringSockaddrIn {
 
   def readIPv4(memory: Long, tmpArray: Array[Byte]): InetSocketAddress =
     SockaddrIn.readIPv4(memory, tmpArray)
+
+  def readIPv6(memory: Long, ipv6Array: Array[Byte], ipv4Array: Array[Byte]) = SockaddrIn.readIPv6(memory, ipv6Array, ipv4Array)
 }

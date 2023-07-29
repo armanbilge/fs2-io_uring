@@ -78,12 +78,15 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                 )
                 .to
             }
-          } *> UringSocket(
-            ring,
-            linuxSocket,
-            linuxSocket.fd(),
-            address
-          )
+          } *>
+            Resource.eval(F.delay(println("[CLIENT] connecting..."))).flatMap { _ =>
+              UringSocket(
+                ring,
+                linuxSocket,
+                linuxSocket.fd(),
+                address
+              )
+            }
         }
       }
     }
@@ -137,7 +140,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                     .bracket(
                       IORING_OP_ACCEPT,
                       0,
-                      NativeAccess.SOCK_NONBLOCK,
+                      NativeAccess.SOCK_CLOEXEC,
                       linuxSocket.fd(),
                       buf.memoryAddress(),
                       0,
@@ -152,8 +155,12 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                   )
                 ) *>
                   F.delay {
-                    val inetAddress =
-                      UringSockaddrIn.readIPv4(buf.memoryAddress(), new Array[Byte](16))
+                    val inetAddress = if (isIpv6) {
+                      UringSockaddrIn
+                        .readIPv6(buf.memoryAddress(), new Array[Byte](16), new Array[Byte](4))
+                    } else {
+                      UringSockaddrIn.readIPv4(buf.memoryAddress(), new Array[Byte](4))
+                    }
                     println(s"[SERVER] Read IP address from buffer: ${inetAddress.getHostString()}")
                     new InetSocketAddress(inetAddress.getHostString(), inetAddress.getPort())
                   }.flatMap { inetSocketAddress =>
@@ -171,7 +178,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                 }
                 .attempt
                 .map(_.toOption)
-            }.repeat
+            }.repeat 
           }
 
       } yield (localAddress, sockets.unNone)
