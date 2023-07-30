@@ -30,6 +30,7 @@ import cats.effect.kernel.Resource
 import scala.concurrent.duration._
 import java.io.IOException
 import fs2.io.net.Socket
+import java.util.concurrent.TimeoutException
 
 class TcpSocketSuite extends UringSuite {
 
@@ -190,33 +191,10 @@ class TcpSocketSuite extends UringSuite {
 
         IO.println("socket created and connection established!") *>
           echoServer.background.use(_ =>
-            IO.sleep(5.second) *> // TODO server waits for connection but we never connect to it.
+            IO.sleep(10.second) *> // TODO server waits for connection but we never connect to it.
               write.compile.drain
               *> IO.println("message written!")
           )
-      }
-    }
-  }
-
-  test("Create server connect with external client and server writes 3") {
-    serverResource.use { case (localAddress, serverStream) =>
-      sg.client(localAddress).use { socket =>
-        val serverMsg = "Hello, client!\n"
-
-        val echoServer = serverStream
-          .map { clientSocket =>
-            Stream(serverMsg)
-              .through(utf8.encode[IO])
-              .through(clientSocket.writes)
-          }
-          .parJoinUnbounded
-          .compile
-          .drain
-
-        IO.println("socket created and connection established!") *>
-          echoServer *>
-          IO.sleep(20.second) *> // Wait for server to send a message
-          IO.println("server message sent!")
       }
     }
   }
@@ -259,23 +237,6 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
-  test("Create server connect and write") {
-    serverResource.use { case (_, clientsStream) =>
-      val msg = "Hello, echo server!\n"
-
-      val write = clientsStream.take(1).flatMap { socket =>
-        Stream(msg)
-          .through(utf8.encode[IO])
-          .through(socket.writes)
-          .onFinalize(socket.endOfOutput)
-      }
-
-      IO.println("Starting operation...") *>
-        IO.sleep(1.second) *> // Ensures that the server is ready before the client tries to connect
-        write.compile.drain
-    }
-  }
-
   // Server and client tests:
 
   val setup = for {
@@ -285,19 +246,20 @@ class TcpSocketSuite extends UringSuite {
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
-
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
-    val clientCount = 1L
+    val clientCount = 20L
 
     Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
-        val echoServer = server.map { socket =>
-          socket.reads
-            .through(socket.writes)
-            .onFinalize(socket.endOfOutput)
-        }.parJoin(1)
+        val echoServer = server
+          .map { socket =>
+            socket.reads
+              .through(socket.writes)
+              .onFinalize(socket.endOfOutput)
+          }
+          .parJoin(1)
 
         val msgClients = Stream.sleep_[IO](1.second) ++ clients
           .take(clientCount)
@@ -309,7 +271,7 @@ class TcpSocketSuite extends UringSuite {
               socket.reads.chunks
                 .map(bytes => new String(bytes.toArray))
           }
-          .parJoin(1)
+          .parJoin(10)
           .take(clientCount)
 
         msgClients.concurrently(echoServer)
@@ -399,6 +361,38 @@ class TcpSocketSuite extends UringSuite {
       }
       .compile
       .drain
+  }
+
+  // TODO options test
+
+  // TODO decide about "read after timed out read not allowed"
+
+  test("can shutdown a socket that's pending a read") {
+    val timeout = 2.seconds
+    val test = sg.serverResource().use { case (bindAddress, clients) =>
+      sg.client(bindAddress).use { _ =>
+        clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
+          case _: TimeoutException => ()
+        }
+      }
+    }
+
+    // also test that timeouts are working correctly
+    test.timed.flatMap { case (duration, _) =>
+      IO(assert(clue(duration) < (timeout + 100.millis)))
+    }
+  }
+
+  test("accept is cancelable") {
+    sg.serverResource().use { case (_, clients) =>
+      clients.compile.drain.timeoutTo(100.millis, IO.unit)
+    }
+  }
+
+  test("empty write") {
+    setup.use { case (_, clients) =>
+      clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
+    }
   }
 
 }
