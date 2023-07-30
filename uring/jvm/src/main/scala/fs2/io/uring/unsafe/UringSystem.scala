@@ -240,7 +240,13 @@ object UringSystem extends PollingSystem {
         override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
           def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
             if (res < 0)
-              cb(Left(new IOException(s"Error in completion queue entry: $res")))
+              cb(
+                Left(
+                  new IOException(
+                    s"Error in completion queue entry with fd: $fd op: $op res: $res and data: $data"
+                  )
+                )
+              )
             else cb(Right(res))
 
           if (
