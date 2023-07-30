@@ -33,20 +33,21 @@ import fs2.io.uring.Uring
 import fs2.io.uring.unsafe.util.createBuffer
 import fs2.io.uring.unsafe.util.OP._
 
+import io.netty.buffer.ByteBuf
 import io.netty.incubator.channel.uring.UringSockaddrIn
 import io.netty.incubator.channel.uring.UringLinuxSocket
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
+import io.netty.incubator.channel.uring.NativeAccess.SOCK_NONBLOCK
 
-import io.netty.buffer.ByteBuf
 import java.net.InetSocketAddress
-import io.netty.incubator.channel.uring.NativeAccess
 
 private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
 
   private[this] def createBufferAux(isIpv6: Boolean): Resource[F, ByteBuf] =
     if (isIpv6) createBuffer(SIZEOF_SOCKADDR_IN6) else createBuffer(SIZEOF_SOCKADDR_IN)
+
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
     Resource.eval(Uring.get[F]).flatMap { ring =>
       Resource.eval(to.resolve).flatMap { address =>
@@ -68,13 +69,10 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
               ring
                 .call(
-                  IORING_OP_CONNECT,
-                  0,
-                  0,
-                  linuxSocket.fd(),
-                  buf.memoryAddress(),
-                  0,
-                  length.toLong
+                  op = IORING_OP_CONNECT,
+                  fd = linuxSocket.fd(),
+                  bufferAddress = buf.memoryAddress(),
+                  offset = length.toLong
                 )
                 .to
             }
@@ -96,6 +94,11 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       port: Option[Port],
       options: List[SocketOption]
   ): Stream[F, Socket[F]] = Stream.resource(serverResource(address, port, options)).flatMap(_._2)
+
+  // TODO: Replace 4 with SIZEOF_SOCKADDR_IN and 16 with SIZEOF_SOCKADDR_IN6
+  private[this] def readIpv(memory: Long, isIpv6: Boolean): InetSocketAddress =
+    if (isIpv6) UringSockaddrIn.readIPv6(memory, new Array[Byte](16), new Array[Byte](4))
+    else UringSockaddrIn.readIPv4(memory, new Array[Byte](4))
 
   def serverResource(
       address: Option[Host],
@@ -131,68 +134,66 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
         sockets = Stream
           .resource(createBufferAux(isIpv6))
-          .flatMap { buf =>
+          .flatMap { buf => // Buffer that will contain the remote address
             Stream
-              .resource(createBuffer(4))
-              .flatMap { buf2 =>
-                Stream.resource {
+              .resource(createBuffer(4)) // TODO: Replace 4 with INT_SIZE ?
+              .flatMap {
+                bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
+                  Stream.resource {
 
-                  buf2.writeInt(buf.capacity())
+                    bufLength.writeInt(buf.capacity())
 
-                  val accept =
-                    Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
-                      ring
-                        .bracket(
-                          IORING_OP_ACCEPT,
-                          0,
-                          NativeAccess.SOCK_NONBLOCK,
-                          linuxSocket.fd(),
-                          buf.memoryAddress(),
-                          0,
-                          buf2.memoryAddress()
-                        )(closeSocket(ring, _))
-                        .mapK {
-                          new cats.~>[IO, IO] {
-                            def apply[A](ioa: IO[A]) = ioa.debug()
+                    // We accept a connection, we write the remote address on the buf and we get the clientFd
+                    val accept =
+                      Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
+                        ring
+                          .bracket(
+                            op = IORING_OP_ACCEPT,
+                            rwFlags = SOCK_NONBLOCK,
+                            fd = linuxSocket.fd(),
+                            bufferAddress = buf.memoryAddress(),
+                            offset = bufLength.memoryAddress()
+                          )(closeSocket(ring, _))
+                          .mapK {
+                            new cats.~>[IO, IO] {
+                              def apply[A](ioa: IO[A]) = ioa.debug()
+                            }
+                          }
+                          .mapK(LiftIO.liftK)
+
+                    // We read the address from the buf and we convert it to SocketAddress
+                    val convert: F[SocketAddress[IpAddress]] =
+                      F.delay(
+                        println(
+                          "[SERVER] getting the address in memory and converting it to SocketAddress..."
+                        )
+                      ) *>
+                        /* TODO: Merge the next two steps in one:  F.delay (SocketAddress.fromInetSocketAddress(readIpv(buf.memoryAddress(), isIpv6))) */
+                        F.delay {
+                          val netRemoteAddress: InetSocketAddress =
+                            readIpv(buf.memoryAddress(), isIpv6)
+                          println(
+                            s"[SERVER] Read IP address from buffer: ${netRemoteAddress.getHostString()}"
+                          )
+                          netRemoteAddress
+                        }.flatMap { netRemoteAddress =>
+                          F.delay {
+                            println(
+                              s"[SERVER] converted and found inetSocketAddress: $netRemoteAddress"
+                            )
+                            SocketAddress.fromInetSocketAddress(netRemoteAddress)
                           }
                         }
-                        .mapK(LiftIO.liftK)
 
-                  val convert: F[SocketAddress[IpAddress]] =
-                    F.delay(
-                      println(
-                        "[SERVER] getting the address in memory and converting it to SocketAddress..."
-                      )
-                    ) *>
-                      F.delay {
-                        val inetAddress = if (isIpv6) {
-                          UringSockaddrIn
-                            .readIPv6(buf.memoryAddress(), new Array[Byte](16), new Array[Byte](4))
-                        } else {
-                          UringSockaddrIn.readIPv4(buf.memoryAddress(), new Array[Byte](4))
-                        }
-                        println(
-                          s"[SERVER] Read IP address from buffer: ${inetAddress.getHostString()}"
-                        )
-                        new InetSocketAddress(inetAddress.getHostString(), inetAddress.getPort())
-                      }.flatMap { inetSocketAddress =>
-                        F.delay {
-                          println(
-                            s"[SERVER] converted and found inetSocketAddress: $inetSocketAddress"
-                          )
-                          SocketAddress.fromInetSocketAddress(inetSocketAddress)
+                    accept
+                      .flatMap { clientFd =>
+                        Resource.eval(convert).flatMap { remoteAddress =>
+                          UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
                         }
                       }
-
-                  accept
-                    .flatMap { clientFd =>
-                      Resource.eval(convert).flatMap { remoteAddress =>
-                        UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
-                      }
-                    }
-                    .attempt
-                    .map(_.toOption)
-                }.repeat
+                      .attempt
+                      .map(_.toOption)
+                  }.repeat
               }
 
           }
@@ -200,7 +201,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       } yield (localAddress, sockets.unNone)
     }
 
-  private def openSocket(
+  private[this] def openSocket(
       ring: Uring,
       ipv6: Boolean
   ): Resource[F, UringLinuxSocket] =
@@ -208,7 +209,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       linuxSocket => closeSocket(ring, linuxSocket.fd()).to
     )
 
-  private def closeSocket(ring: Uring, fd: Int): IO[Unit] =
+  private[this] def closeSocket(ring: Uring, fd: Int): IO[Unit] =
     ring.call(op = IORING_OP_CLOSE, fd = fd).void
 
 }
