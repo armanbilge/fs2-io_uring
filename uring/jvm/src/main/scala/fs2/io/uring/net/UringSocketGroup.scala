@@ -36,8 +36,7 @@ import fs2.io.uring.unsafe.util.OP._
 import io.netty.buffer.ByteBuf
 import io.netty.incubator.channel.uring.UringSockaddrIn
 import io.netty.incubator.channel.uring.UringLinuxSocket
-import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN
-import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
+import io.netty.incubator.channel.uring.NativeAccess._
 
 import java.net.InetSocketAddress
 
@@ -134,7 +133,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           .resource(createBufferAux(isIpv6))
           .flatMap { buf => // Buffer that will contain the remote address
             Stream
-              .resource(createBuffer(4)) 
+              .resource(createBuffer(4))
               .flatMap {
                 bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
                   Stream.resource {
@@ -205,6 +204,15 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
     Resource.make[F, UringLinuxSocket](F.delay(UringLinuxSocket.newSocketStream(ipv6)))(
       linuxSocket => closeSocket(ring, linuxSocket.fd()).to
     )
+
+  private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
+    val domain = if (ipv6) AF_INET else AF_INET6
+    ring
+      .bracket(op = IORING_OP_SOCKET, fd = domain, length = 0, offset = SOCK_STREAM)(
+        closeSocket(ring, _)
+      )
+      .mapK(LiftIO.liftK)
+  }
 
   private[this] def closeSocket(ring: Uring, fd: Int): IO[Unit] =
     ring.call(op = IORING_OP_CLOSE, fd = fd).void

@@ -415,6 +415,12 @@ object NativeAccess {
 
   val SOCK_CLOEXEC = Native.SOCK_CLOEXEC
 
+  val AF_INET = Native.AF_INET
+
+  val AF_INET6 = Native.AF_INET6
+
+  val SOCK_STREAM = 1
+
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
     */
