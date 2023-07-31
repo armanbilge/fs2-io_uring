@@ -38,7 +38,6 @@ import io.netty.incubator.channel.uring.UringSockaddrIn
 import io.netty.incubator.channel.uring.UringLinuxSocket
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN
 import io.netty.incubator.channel.uring.NativeAccess.SIZEOF_SOCKADDR_IN6
-import io.netty.incubator.channel.uring.NativeAccess.SOCK_NONBLOCK
 
 import java.net.InetSocketAddress
 
@@ -149,7 +148,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                         ring
                           .bracket(
                             op = IORING_OP_ACCEPT,
-                            rwFlags = SOCK_NONBLOCK,
                             fd = linuxSocket.fd(),
                             bufferAddress = buf.memoryAddress(),
                             offset = bufLength.memoryAddress()
