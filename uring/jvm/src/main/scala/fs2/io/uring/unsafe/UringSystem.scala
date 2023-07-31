@@ -212,7 +212,7 @@ object UringSystem extends PollingSystem {
     ): Boolean = {
       if (debug)
         println(
-          s"[SQ] Enqueuing a new Sqe with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+          s"[SQ] Enqueuing a new Sqe in ringFd: ${ring.fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
         )
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
