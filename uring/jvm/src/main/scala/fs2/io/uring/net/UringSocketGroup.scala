@@ -206,7 +206,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
     )
 
   private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
-    val domain = if (ipv6) AF_INET else AF_INET6
+    val domain = if (ipv6) AF_INET6 else AF_INET
     ring
       .bracket(op = IORING_OP_SOCKET, fd = domain, length = 0, offset = SOCK_STREAM)(
         closeSocket(ring, _)
