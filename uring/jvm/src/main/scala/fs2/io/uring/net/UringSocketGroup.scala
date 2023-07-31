@@ -94,7 +94,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       options: List[SocketOption]
   ): Stream[F, Socket[F]] = Stream.resource(serverResource(address, port, options)).flatMap(_._2)
 
-  // TODO: Replace 4 with SIZEOF_SOCKADDR_IN and 16 with SIZEOF_SOCKADDR_IN6
   private[this] def readIpv(memory: Long, isIpv6: Boolean): InetSocketAddress =
     if (isIpv6) UringSockaddrIn.readIPv6(memory, new Array[Byte](16), new Array[Byte](4))
     else UringSockaddrIn.readIPv4(memory, new Array[Byte](4))
@@ -135,7 +134,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           .resource(createBufferAux(isIpv6))
           .flatMap { buf => // Buffer that will contain the remote address
             Stream
-              .resource(createBuffer(4)) // TODO: Replace 4 with INT_SIZE ?
+              .resource(createBuffer(4)) 
               .flatMap {
                 bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
                   Stream.resource {
