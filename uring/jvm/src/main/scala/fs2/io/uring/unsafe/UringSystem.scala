@@ -243,7 +243,7 @@ object UringSystem extends PollingSystem {
               cb(
                 Left(
                   new IOException(
-                    s"Error in completion queue entry with fd: $fd op: $op res: $res and data: $data"
+                    s"Error in completion queue entry of the ring with fd: ${ring.fd()} with fd: $fd op: $op res: $res and data: $data"
                   )
                 )
               )
@@ -252,7 +252,7 @@ object UringSystem extends PollingSystem {
           if (
             op != 11 && debug
           ) // To prevent the constant printouts of timeout operation when NANOS == -1
-            println(s"[HANDLE CQCB]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
+            println(s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
 
           callbacks.get(data).foreach { cb =>
             handleCallback(res, cb)
