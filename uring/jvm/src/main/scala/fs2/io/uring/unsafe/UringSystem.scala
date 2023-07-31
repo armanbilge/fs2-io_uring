@@ -47,7 +47,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false // True to printout operations
+  private val debug = true // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -275,10 +275,12 @@ object UringSystem extends PollingSystem {
         submitted
       }
 
+      println(s"POLLING! with nanos: $nanos")
+
       nanos match {
         case -1 =>
           if (pendingSubmissions) handlePendingSubmissions(true)
-          else handleTimeoutAndQueue(-1, false)
+          else handleTimeoutAndQueue(-1, true)
         case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
         case _ =>
           if (pendingSubmissions) handlePendingSubmissions(true)
