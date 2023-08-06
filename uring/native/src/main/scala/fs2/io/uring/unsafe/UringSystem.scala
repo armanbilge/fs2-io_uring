@@ -24,8 +24,8 @@ import cats.effect.IO
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Resource
-import cats.effect.std.Semaphore
 import cats.effect.unsafe.PollingSystem
+import cats.effect.std.Mutex
 import cats.syntax.all._
 
 import java.util.Collections
@@ -130,11 +130,11 @@ object UringSystem extends PollingSystem {
         writes: Boolean
     ): Resource[IO, FileDescriptorPollHandle] =
       Resource.eval {
-        (Semaphore[IO](1), Semaphore[IO](1)).mapN { (readSemaphore, writeSemaphore) =>
+        (Mutex[IO], Mutex[IO]).mapN { (readMutex, writeMutex) =>
           new FileDescriptorPollHandle {
 
             def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              readSemaphore.permit.surround {
+              readMutex.lock.surround {
                 a.tailRecM { a =>
                   f(a).flatTap { r =>
                     if (r.isRight)
@@ -146,7 +146,7 @@ object UringSystem extends PollingSystem {
               }
 
             def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              writeSemaphore.permit.surround {
+              writeMutex.lock.surround {
                 a.tailRecM { a =>
                   f(a).flatTap { r =>
                     if (r.isRight)
