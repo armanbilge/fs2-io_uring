@@ -51,6 +51,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
   private[this] def recv(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
+
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
       for {
@@ -104,6 +105,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
   private[this] def send(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
+
   def write(bytes: Chunk[Byte]): F[Unit] =
     writeMutex.lock
       .surround {
@@ -146,7 +148,16 @@ private[net] object UringSocket {
       buffer <- createBuffer(defaultReadSize)
       readMutex <- Resource.eval(Mutex[F])
       writeMutex <- Resource.eval(Mutex[F])
-      socket = new UringSocket(ring, linuxSocket, fd, remote, buffer, 8192, readMutex, writeMutex)
+      socket = new UringSocket(
+        ring,
+        linuxSocket,
+        fd,
+        remote,
+        buffer,
+        defaultReadSize,
+        readMutex,
+        writeMutex
+      )
     } yield socket
 
 }
