@@ -621,6 +621,10 @@ object UringLinuxSocket {
 }
 
 object UringSockaddrIn {
+  val IPV6_ADDRESS_LENGTH = SockaddrIn.IPV6_ADDRESS_LENGTH
+  
+  val IPV4_ADDRESS_LENGTH = SockaddrIn.IPV4_ADDRESS_LENGTH
+
   def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int =
     SockaddrIn.write(ipv6, memory, address)
 
