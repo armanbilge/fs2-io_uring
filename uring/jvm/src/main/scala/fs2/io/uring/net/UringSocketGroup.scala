@@ -46,36 +46,42 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
   private[this] def createBufferAux(isIpv6: Boolean): Resource[F, ByteBuf] =
     if (isIpv6) createBuffer(SIZEOF_SOCKADDR_IN6) else createBuffer(SIZEOF_SOCKADDR_IN)
 
-  def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
-    for {
-      ring <- Resource.eval(Uring.get[F])
-      address <- Resource.eval(to.resolve)
-      isIpv6 = address.host.isInstanceOf[Ipv6Address]
-      linuxSocket <- openSocket(ring, isIpv6)
-      _ <- Resource.eval(
-        createBufferAux(isIpv6).use { buf => // Write address in the buffer and call connect
-          for {
-            length <- F.delay(write(isIpv6, buf.memoryAddress(), address.toInetSocketAddress))
-            _ <- F.delay(
-              println(
-                s"[CLIENT] address: ${address.toString()}, buffer: ${buf.toString()}, length: $length"
-              )
+  def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] = for {
+
+    ring <- Resource.eval(Uring.get[F])
+
+    address <- Resource.eval(to.resolve)
+
+    isIpv6 = address.host.isInstanceOf[Ipv6Address]
+
+    linuxSocket <- openSocket(ring, isIpv6)
+
+    _ <- Resource.eval(
+      createBufferAux(isIpv6).use { buf => // Write address in the buffer and call connect
+        for {
+          length <- F.delay(write(isIpv6, buf.memoryAddress(), address.toInetSocketAddress))
+          _ <- F.delay(
+            println(
+              s"[CLIENT] address: ${address.toString()}, Buffer length: $length"
             )
-            _ <- F.delay(println(s"[CLIENT] LinuxSocket fd: ${linuxSocket.fd()}"))
-            _ <- ring
-              .call(
-                op = IORING_OP_CONNECT,
-                fd = linuxSocket.fd(),
-                bufferAddress = buf.memoryAddress(),
-                offset = length.toLong
-              )
-              .to
-          } yield ()
-        }
-      )
-      _ <- Resource.eval(F.delay(println("[CLIENT] connecting...")))
-      socket <- UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
-    } yield socket
+          )
+          _ <- F.delay(println(s"[CLIENT] LinuxSocket fd: ${linuxSocket.fd()}"))
+          _ <- ring
+            .call(
+              op = IORING_OP_CONNECT,
+              fd = linuxSocket.fd(),
+              bufferAddress = buf.memoryAddress(),
+              offset = length.toLong
+            )
+            .to
+        } yield ()
+      }
+    )
+    _ <- Resource.eval(F.delay(println("[CLIENT] connecting...")))
+
+    socket <- UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
+
+  } yield socket
 
   def server(
       address: Option[Host],
@@ -93,12 +99,19 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       port: Option[Port],
       options: List[SocketOption]
   ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] = for {
+
     ring <- Resource.eval(Uring.get[F])
+
     resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
+
     _ <- Resource.eval(F.delay(println(s"[SERVER] Resolved Address: $resolvedAddress")))
+
     isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
+
     linuxSocket <- openSocket(ring, isIpv6)
+
     _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFD: ${linuxSocket.fd()}")))
+
     _ <- Resource.eval(
       F.delay(
         linuxSocket.bind(
@@ -106,11 +119,15 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
         )
       )
     )
+
     _ <- Resource.eval(F.delay(linuxSocket.listen(65535)))
+
     localAddress <- Resource.eval(
       F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
     )
+
     _ <- Resource.eval(F.delay(println(s"[SERVER] Local Address: $localAddress")))
+
     sockets = for {
       buf <- Stream.resource(createBufferAux(isIpv6))
       bufLength <- Stream.resource(createBuffer(4))
@@ -154,10 +171,10 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           .attempt
           .map(_.toOption)
       }.repeat
+
     } yield res
 
   } yield (localAddress, sockets.unNone)
-
 
   private[this] def openSocket(
       ring: Uring,
