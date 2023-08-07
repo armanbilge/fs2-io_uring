@@ -132,10 +132,10 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       buf <- Stream.resource(createBufferAux(isIpv6))
       bufLength <- Stream.resource(createBuffer(4))
       res <- Stream.resource {
-        bufLength.writeInt(buf.capacity())
 
         // Accept a connection, write the remote address on the buf and get the clientFd
         val accept: Resource[F, Int] =
+          Resource.eval(F.delay(bufLength.writeInt(buf.capacity()))) *>
           Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
             ring
               .bracket(
