@@ -139,45 +139,29 @@ class TcpSocketSuite extends UringSuite {
   test("Start server and wait for a connection during 10 sec") {
     serverResource.use { case (localAddress, _) =>
       IO {
-        println(s"Server started at $localAddress")
-        println(s"You can now connect to this server")
-      } *> IO.sleep(20.second)
+        println(s"[TEST] Server started at $localAddress")
+        println(s"[TEST] You can now connect to this server")
+      } *> IO.sleep(10.second)
     // Use telnet localhost "port" to connect
     }
   }
 
   test("Start server and connect external client") {
     serverResource.use { case (localAddress, _) =>
-      IO {
-        println(s"Server started at $localAddress")
-      } *>
-        sg.client(localAddress).use { socket =>
-          val info = IO {
-            println("Socket created and connection established!")
-            println(s"remote address connected: ${socket.remoteAddress}")
-          }
-
-          val assert = socket.remoteAddress.map(assertEquals(_, localAddress))
-
-          info *> assert
+      for {
+        _ <- IO.println(s"[TEST] Server started at $localAddress")
+        _ <- sg.client(localAddress).use { socket =>
+          for {
+            remoteAddress <- socket.remoteAddress
+            _ <- IO.println(s"[TEST] Socket created and connected to $remoteAddress!")
+            _ <- socket.remoteAddress.map(assertEquals(_, localAddress))
+          } yield ()
         }
+      } yield ()
     }
   }
 
-  // We start using the serverStream
-  test("Create server and connect external client 2") {
-    serverResource.use { case (localAddress, serverStream) =>
-      sg.client(localAddress).use { _ =>
-        val echoServer =
-          serverStream.compile.drain // If we modify the resource server to just take(1) works. I guess we are trying to bind multiple sockets to the same ip/port ?
-
-        IO.println("socket created and connection established!") *>
-          echoServer.background.use(_ => IO.sleep(1.second))
-      }
-    }
-  }
-
-  test("Create server connect with external client and writes") {
+  test("Create server connect external client and writes") {
     serverResource.use { case (localAddress, serverStream) =>
       sg.client(localAddress).use { socket =>
         val msg = "Hello, echo server!\n"
@@ -229,7 +213,7 @@ class TcpSocketSuite extends UringSuite {
           echoServer.background.use(_ =>
             IO.sleep(
               1.second
-            ) *> // Ensures that the server is ready before the client tries to connect
+            ) *>
               writeRead.compile.lastOrError
                 .assertEquals("Hello, echo server!")
           )
@@ -246,11 +230,13 @@ class TcpSocketSuite extends UringSuite {
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
+  val repetitions: Int = 5
+
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
     val clientCount = 20L
 
-    Stream
+    val test: IO[Unit] = Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
         val echoServer = server
@@ -282,13 +268,15 @@ class TcpSocketSuite extends UringSuite {
         assertEquals(it.size.toLong, clientCount)
         assert(it.forall(_ == "fs2.rocks"))
       }
+
+    test.replicateA(repetitions).void
   }
 
   test("readN yields chunks of the requested size") {
     val message = Chunk.array("123456789012345678901234567890".getBytes)
     val sizes = Vector(1, 2, 3, 4, 3, 2, 1)
 
-    Stream
+    val test: IO[Unit] = Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
         val junkServer = server.map { socket =>
@@ -314,12 +302,14 @@ class TcpSocketSuite extends UringSuite {
       .compile
       .toVector
       .assertEquals(sizes)
+
+    test.replicateA(repetitions).void
   }
 
   test("write - concurrent calls do not cause a WritePendingException") {
     val message = Chunk.array(("123456789012345678901234567890" * 10000).getBytes)
 
-    Stream
+    val test: IO[Unit] = Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
         val readOnlyServer = server.map(_.reads).parJoinUnbounded
@@ -335,10 +325,12 @@ class TcpSocketSuite extends UringSuite {
       }
       .compile
       .drain
+
+    test.replicateA(repetitions).void
   }
 
   test("addresses - should match across client and server sockets") {
-    Stream
+    val test: IO[Unit] = Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
         val serverSocketAddresses = server.evalMap { socket =>
@@ -361,6 +353,8 @@ class TcpSocketSuite extends UringSuite {
       }
       .compile
       .drain
+
+    test.replicateA(repetitions).void
   }
 
   // TODO options test
