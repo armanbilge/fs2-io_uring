@@ -31,12 +31,8 @@ import scala.concurrent.duration._
 import java.io.IOException
 import fs2.io.net.Socket
 import java.util.concurrent.TimeoutException
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-class TcpSocketSuit extends UringSuite {
-
-  implicit val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
+class TcpSocketSuite extends UringSuite {
 
   val sg = UringSocketGroup[IO]
 
@@ -234,7 +230,7 @@ class TcpSocketSuit extends UringSuite {
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
-  val repetitions: Int = 1
+  val repetitions: Int = 5
 
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
