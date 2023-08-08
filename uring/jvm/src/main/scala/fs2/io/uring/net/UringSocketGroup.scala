@@ -62,7 +62,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           length <- F.delay(write(isIpv6, buf.memoryAddress(), address.toInetSocketAddress))
           _ <- F.delay(
             println(
-              s"[CLIENT] address: ${address.toString()}, Buffer length: $length"
+              s"[CLIENT] connecting to address: ${address.toString()}, Buffer length: $length"
             )
           )
           _ <- F.delay(println(s"[CLIENT] LinuxSocket fd: ${linuxSocket.fd()}"))
@@ -109,20 +109,19 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
         linuxSocket <- openSocket(ring, isIpv6)
 
-        _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFD: ${linuxSocket.fd()}")))
+        _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFd: ${linuxSocket.fd()}")))
 
-        localAddress <- Resource.eval {
-          val bindF = F.delay {
-            val socketAddress =
-              new InetSocketAddress(resolvedAddress.toString, port.getOrElse(port"0").value)
-            linuxSocket.bind(socketAddress)
-          }
+        _ <- Resource.eval(
+          F.delay(
+            linuxSocket
+              .bind(new InetSocketAddress(resolvedAddress.toString, port.getOrElse(port"0").value))
+          )
+        )
 
-          val listenF = F.delay(linuxSocket.listen(65535))
+        _ <- Resource.eval(F.delay(linuxSocket.listen(65535)))
 
-          bindF *> listenF *> F
-            .delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
-        }
+        localAddress <- Resource
+          .eval(F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress())))
 
         _ <- Resource.eval(F.delay(println(s"[SERVER] Local Address: $localAddress")))
 
@@ -135,43 +134,49 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                 bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
                   Stream.resource {
 
-                    // bufLength.writeInt(buf.capacity()) TODO: Moved to accept wrapped in Resource[F, A] but introduces errors in tests (echo requests), probably due to the interrupt 
+                    bufLength.writeInt(
+                      buf.capacity()
+                    ) // TODO: Moved to accept wrapped in Resource[F, A] but introduces errors in tests (echo requests), probably due to the interrupt
 
-                    // We accept a connection, we write the remote address on the buf and we get the clientFd
-                    val accept =
-                      Resource.eval(F.delay(bufLength.writeInt(buf.capacity()))) *>
-                      Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
-                        ring
-                          .bracket(
-                            op = IORING_OP_ACCEPT,
-                            fd = linuxSocket.fd(),
-                            bufferAddress = buf.memoryAddress(),
-                            offset = bufLength.memoryAddress()
-                          )(closeSocket(ring, _))
-                          .mapK {
-                            new cats.~>[IO, IO] {
-                              def apply[A](ioa: IO[A]) = ioa.debug()
-                            }
+                    // Accept a connection, write the remote address on the buf and get the clientFd
+                    val accept: Resource[F, Int] = for {
+                      // _ <- Resource.eval(F.delay(bufLength.writeInt(buf.capacity())))
+                      _ <- Resource.eval(F.delay(println("[SERVER] accepting connection...")))
+                      clientFd <- ring
+                        .bracket(
+                          op = IORING_OP_ACCEPT,
+                          fd = linuxSocket.fd(),
+                          bufferAddress = buf.memoryAddress(),
+                          offset = bufLength.memoryAddress()
+                        )(closeSocket(ring, _))
+                        .mapK {
+                          new cats.~>[IO, IO] {
+                            def apply[A](ioa: IO[A]) = ioa.debug()
                           }
-                          .mapK(LiftIO.liftK)
+                        }
+                        .mapK(LiftIO.liftK)
+                    } yield clientFd
 
-                    // We read the address from the buf and we convert it to SocketAddress
+                    // Read the address from the buf and convert it to SocketAddress
                     val convert: F[SocketAddress[IpAddress]] =
                       F.delay(
-                        println(
-                          "[SERVER] getting the address in memory and converting it to SocketAddress..."
-                        )
-                      ) *>
-                      F.delay(SocketAddress.fromInetSocketAddress(readIpv(buf.memoryAddress(), isIpv6)))
+                        SocketAddress.fromInetSocketAddress(readIpv(buf.memoryAddress(), isIpv6))
+                      )
 
-                    accept
-                      .flatMap { clientFd =>
-                        Resource.eval(convert).flatMap { remoteAddress =>
-                          UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
-                        }
-                      }
-                      .attempt
-                      .map(_.toOption)
+                    val socket: Resource[F, UringSocket[F]] = for {
+                      clientFd <- accept
+                      remoteAddress <- Resource.eval(convert)
+                      _ <- Resource
+                        .eval(F.delay(s"[SERVER] connected to $remoteAddress with fd: $clientFd"))
+                      socket <- UringSocket(
+                        ring,
+                        UringLinuxSocket(clientFd),
+                        clientFd,
+                        remoteAddress
+                      )
+                    } yield socket
+
+                    socket.attempt.map(_.toOption)
                   }.repeat
               }
 
