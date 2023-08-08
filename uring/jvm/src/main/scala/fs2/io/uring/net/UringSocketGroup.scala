@@ -62,10 +62,12 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           length <- F.delay(write(isIpv6, buf.memoryAddress(), address.toInetSocketAddress))
           _ <- F.delay(
             println(
-              s"[CLIENT] connecting to address: ${address.toString()}, Buffer length: $length"
+              s"[CLIENT] Connecting to address: ${address
+                  .toString()}, Buffer length: $length and LinuxSocket fd: ${linuxSocket.fd()}"
             )
           )
-          _ <- F.delay(println(s"[CLIENT] LinuxSocket fd: ${linuxSocket.fd()}"))
+
+          _ <- F.delay(println("[CLIENT] Connecting..."))
           _ <- ring
             .call(
               op = IORING_OP_CONNECT,
@@ -77,9 +79,10 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
         } yield ()
       }
     )
-    _ <- Resource.eval(F.delay(println("[CLIENT] connecting...")))
 
     socket <- UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
+
+    _ <- Resource.eval(F.delay(println("[CLIENT] Connexion established!")))
 
   } yield socket
 
@@ -155,6 +158,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                           }
                         }
                         .mapK(LiftIO.liftK)
+
+                      _ <- Resource.eval(F.delay(println("[SERVER] connexion established!")))
+
                     } yield clientFd
 
                     // Read the address from the buf and convert it to SocketAddress
@@ -193,6 +199,12 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       linuxSocket => closeSocket(ring, linuxSocket.fd()).to
     )
 
+  /*
+    The bind, listen and getLocalAddress functions are in the LinuxSocket class.
+    If we open a socket using the ring, we only get a fd => Problem: how to bind and listen ?
+      - io_uring doesn't have a bind, listen or getLocalAddress operators.
+      - Is it possible to create a LinuxSocket using the fd created by the ring ? This would solve the problem.
+   */
   private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
     val domain = if (ipv6) AF_INET6 else AF_INET
     ring

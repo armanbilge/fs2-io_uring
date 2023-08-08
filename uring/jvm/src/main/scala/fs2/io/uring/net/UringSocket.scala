@@ -55,17 +55,18 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
       for {
-        _ <- F.delay(buffer.clear())
+        _ <- F.delay(buffer.clear()) // Clear the buffer before writing
 
+        _ <- F.delay(println(s"[SOCKET][READ] writing the received message in the buffer..."))
         readed <- recv(buffer.memoryAddress(), 0, maxBytes, 0)
 
+        _ <- F.delay(println(s"[SOCKET][READ] transfering the message from the buffer to a new array..."))
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
           buffer.getBytes(0, arr)
           arr
         }
-
-        _ <- F.delay(println(s"[SOCKET] reading the array: ${bytes}"))
+        _ <- F.delay(println(s"[SOCKET][READ] Done reading!"))
 
       } yield Option.when(readed > 0)(Chunk.array(bytes))
     }
@@ -110,13 +111,13 @@ private[net] final class UringSocket[F[_]: LiftIO](
     writeMutex.lock
       .surround {
         for {
+          _ <- F.delay(println(s"[SOCKET][WRITE] transfering to the buffer the bytes..."))
           _ <- F.delay {
             buffer.clear()
             buffer.writeBytes(bytes.toArray)
           }
 
-          _ <- F.delay(println(s"[SOCKET] writing in array..."))
-
+          _ <- F.delay(println(s"[SOCKET][WRITE] sending the bytes in the buffer..."))
           _ <- send(
             buffer.memoryAddress(),
             0,
@@ -124,7 +125,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
             0 // TODO Replace with MSG_NOSIGNAL
           )
 
-          _ <- F.delay(println(s"[SOCKET] Message sent!"))
+          _ <- F.delay(println(s"[SOCKET][WRITE] message sent!"))
 
         } yield ()
       }
