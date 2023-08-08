@@ -115,7 +115,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
             buffer.writeBytes(bytes.toArray)
           }
 
-          _ <- F.delay(println(s"[SOCKET] writing in array: $bytes"))
+          _ <- F.delay(println(s"[SOCKET] writing in array..."))
 
           _ <- send(
             buffer.memoryAddress(),
