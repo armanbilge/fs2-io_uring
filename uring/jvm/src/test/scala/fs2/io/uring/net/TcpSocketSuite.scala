@@ -31,12 +31,8 @@ import scala.concurrent.duration._
 import java.io.IOException
 import fs2.io.net.Socket
 import java.util.concurrent.TimeoutException
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 class TcpSocketSuit extends UringSuite {
-
-  implicit val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
   val sg = UringSocketGroup[IO]
 

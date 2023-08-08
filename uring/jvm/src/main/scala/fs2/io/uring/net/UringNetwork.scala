@@ -39,7 +39,6 @@ import fs2.io.net.DatagramSocketOption
 import java.net.ProtocolFamily
 
 import java.util.concurrent.ThreadFactory
-import org.typelevel.log4cats.Logger
 
 private[net] final class UringNetwork[F[_]](
     sg: UringSocketGroup[F],
@@ -79,7 +78,7 @@ private[net] final class UringNetwork[F[_]](
 }
 
 object UringNetwork {
-  def apply[F[_]: Async: Dns: LiftIO: Logger]: Network[F] =
+  def apply[F[_]: Async: Dns: LiftIO]: Network[F] =
     new UringNetwork(
       new UringSocketGroup[F],
       new UringDatagramSocketGroup[F],

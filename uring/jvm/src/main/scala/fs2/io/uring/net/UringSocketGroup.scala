@@ -38,13 +38,9 @@ import io.netty.incubator.channel.uring.UringSockaddrIn._
 import io.netty.incubator.channel.uring.UringLinuxSocket
 import io.netty.incubator.channel.uring.NativeAccess._
 
-import org.typelevel.log4cats.Logger
-
-import fs2.io.uring.logging.syntax._
-
 import java.net.InetSocketAddress
 
-private final class UringSocketGroup[F[_]: LiftIO: Logger](implicit F: Async[F], dns: Dns[F])
+private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
 
   private[this] def createBufferAux(isIpv6: Boolean): Resource[F, ByteBuf] =
@@ -52,9 +48,7 @@ private final class UringSocketGroup[F[_]: LiftIO: Logger](implicit F: Async[F],
 
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] = for {
 
-    ring <- Resource.eval(Uring.get[F].logError(e => s"got the error: $e")).log(uring => "WE GOT THE URING!!", e => s"We got an error: $e")
-
-    _       <- Resource.eval(Logger[F].info("Trying to resolve address..."))
+    ring <- Resource.eval(Uring.get[F])
 
     address <- Resource.eval(to.resolve)
 
@@ -226,5 +220,5 @@ private final class UringSocketGroup[F[_]: LiftIO: Logger](implicit F: Async[F],
 }
 
 object UringSocketGroup {
-  def apply[F[_]: Async: Dns: LiftIO: Logger]: SocketGroup[F] = new UringSocketGroup
+  def apply[F[_]: Async: Dns: LiftIO]: SocketGroup[F] = new UringSocketGroup
 }
