@@ -98,83 +98,87 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       address: Option[Host],
       port: Option[Port],
       options: List[SocketOption]
-  ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] = for {
+  ): Resource[F, (SocketAddress[IpAddress], Stream[F, Socket[F]])] =
+    Resource.eval(Uring.get[F]).flatMap { ring =>
+      for {
+        resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
 
-    ring <- Resource.eval(Uring.get[F])
+        _ <- Resource.eval(F.delay(println(s"[SERVER] Resolved Address: $resolvedAddress")))
 
-    resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
+        isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
 
-    _ <- Resource.eval(F.delay(println(s"[SERVER] Resolved Address: $resolvedAddress")))
+        linuxSocket <- openSocket(ring, isIpv6)
 
-    isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
+        _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFD: ${linuxSocket.fd()}")))
 
-    linuxSocket <- openSocket(ring, isIpv6)
-
-    _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFD: ${linuxSocket.fd()}")))
-
-    _ <- Resource.eval(
-      F.delay(
-        linuxSocket.bind(
-          new InetSocketAddress(resolvedAddress.toString, port.getOrElse(port"0").value)
-        )
-      )
-    )
-
-    _ <- Resource.eval(F.delay(linuxSocket.listen(65535)))
-
-    localAddress <- Resource.eval(
-      F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
-    )
-
-    _ <- Resource.eval(F.delay(println(s"[SERVER] Local Address: $localAddress")))
-
-    sockets = for {
-      buf <- Stream.resource(createBufferAux(isIpv6))
-      bufLength <- Stream.resource(createBuffer(4))
-      res <- Stream.resource {
-
-        // Accept a connection, write the remote address on the buf and get the clientFd
-        val accept: Resource[F, Int] =
-          Resource.eval(F.delay(bufLength.writeInt(buf.capacity()))) *>
-          Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
-            ring
-              .bracket(
-                op = IORING_OP_ACCEPT,
-                fd = linuxSocket.fd(),
-                bufferAddress = buf.memoryAddress(),
-                offset = bufLength.memoryAddress()
-              )(closeSocket(ring, _))
-              .mapK {
-                new cats.~>[IO, IO] {
-                  def apply[A](ioa: IO[A]) = ioa.debug()
-                }
-              }
-              .mapK(LiftIO.liftK)
-
-        // Read the address from the buf and convert it to SocketAddress
-        val convert: F[SocketAddress[IpAddress]] =
-          F.delay(
-            println(
-              "[SERVER] getting the address in memory and converting it to SocketAddress..."
-            )
-          ) *>
-            F.delay(
-              SocketAddress.fromInetSocketAddress(readIpv(buf.memoryAddress(), isIpv6))
-            )
-
-        accept
-          .flatMap { clientFd =>
-            Resource.eval(convert).flatMap { remoteAddress =>
-              UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
-            }
+        localAddress <- Resource.eval {
+          val bindF = F.delay {
+            val socketAddress =
+              new InetSocketAddress(resolvedAddress.toString, port.getOrElse(port"0").value)
+            linuxSocket.bind(socketAddress)
           }
-          .attempt
-          .map(_.toOption)
-      }.repeat
 
-    } yield res
+          val listenF = F.delay(linuxSocket.listen(65535))
 
-  } yield (localAddress, sockets.unNone)
+          bindF *> listenF *> F
+            .delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
+        }
+
+        _ <- Resource.eval(F.delay(println(s"[SERVER] Local Address: $localAddress")))
+
+        sockets = Stream
+          .resource(createBufferAux(isIpv6))
+          .flatMap { buf => // Buffer that will contain the remote address
+            Stream
+              .resource(createBuffer(4))
+              .flatMap {
+                bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
+                  Stream.resource {
+
+                    // bufLength.writeInt(buf.capacity()) TODO: Moved to accept wrapped in Resource[F, A] but introduces errors in tests (echo requests), probably due to the interrupt 
+
+                    // We accept a connection, we write the remote address on the buf and we get the clientFd
+                    val accept =
+                      Resource.eval(F.delay(bufLength.writeInt(buf.capacity()))) *>
+                      Resource.eval(F.delay(println("[SERVER] accepting connection..."))) *>
+                        ring
+                          .bracket(
+                            op = IORING_OP_ACCEPT,
+                            fd = linuxSocket.fd(),
+                            bufferAddress = buf.memoryAddress(),
+                            offset = bufLength.memoryAddress()
+                          )(closeSocket(ring, _))
+                          .mapK {
+                            new cats.~>[IO, IO] {
+                              def apply[A](ioa: IO[A]) = ioa.debug()
+                            }
+                          }
+                          .mapK(LiftIO.liftK)
+
+                    // We read the address from the buf and we convert it to SocketAddress
+                    val convert: F[SocketAddress[IpAddress]] =
+                      F.delay(
+                        println(
+                          "[SERVER] getting the address in memory and converting it to SocketAddress..."
+                        )
+                      ) *>
+                      F.delay(SocketAddress.fromInetSocketAddress(readIpv(buf.memoryAddress(), isIpv6)))
+
+                    accept
+                      .flatMap { clientFd =>
+                        Resource.eval(convert).flatMap { remoteAddress =>
+                          UringSocket(ring, UringLinuxSocket(clientFd), clientFd, remoteAddress)
+                        }
+                      }
+                      .attempt
+                      .map(_.toOption)
+                  }.repeat
+              }
+
+          }
+
+      } yield (localAddress, sockets.unNone)
+    }
 
   private[this] def openSocket(
       ring: Uring,
