@@ -68,6 +68,7 @@ object UringSystem extends PollingSystem {
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
+    println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
     val buffer: ByteBuffer = ByteBuffer.allocate(1)
     buffer.put(0.toByte)
     buffer.flip()
@@ -281,25 +282,30 @@ object UringSystem extends PollingSystem {
       }
 
       def handlePendingSubmissions(submitAndWait: Boolean): Boolean = {
+        if (submitAndWait) println("[HANDLE PENDING SUMBISSION] Submiting and waiting...")
+        else println("[HANDLE PENDING SUMBISSION] Submiting...")
         val submitted = if (submitAndWait) sq.submitAndWait() > 0 else sq.submit() > 0
         if (submitted) pendingSubmissions = false
+        println(s"[HANDLE PENDING SUBMISSION] submitted a positive number of operations: $submitted")
         submitted
       }
 
       def handleTimeoutAndQueue(nanos: Long, submitAndWait: Boolean): Boolean = {
+        println(s"[HANDLE TIMEOUT AND QUEUE] adding timeout: $nanos")
         sq.addTimeout(nanos, 0)
         val submitted = handlePendingSubmissions(submitAndWait)
+        println(s"[HANDLE TIMEOUT AND QUEUE] waiting CQE")
         cq.ioUringWaitCqe()
+        println(s"[HANDLE TIMEOUT AND QUEUE] processing CQ")
         process(completionQueueCallback)
+        println(s"[HANDLE TIMEOUT AND QUEUE] submitted a positive number of operations: $submitted")
         submitted
       }
 
-      if (debug) println(s"POLLING! with nanos: $nanos")
-
       val interruptBuffer: ByteBuffer = ByteBuffer.allocate(1)
       if (interruptSource.read(interruptBuffer) > 0) {
-        // Data is available, it means an interrupt signal was sent
-        // Clear the data and return from poll or handle interrupt as needed
+        println("INTERRUPTED!")
+        interruptBuffer.clear()
         false
       } else {
         nanos match {
