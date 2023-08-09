@@ -41,7 +41,8 @@ import java.io.IOException
 import scala.collection.mutable.Map
 import java.util.BitSet
 
-// import org.slf4j.LoggerFactory
+import java.nio.ByteBuffer
+import java.nio.channels.Pipe
 
 object UringSystem extends PollingSystem {
 
@@ -66,9 +67,13 @@ object UringSystem extends PollingSystem {
 
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
-  override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
-
-  def interrupt(poller: Poller, targetThread: Thread, targetPoller: Poller): Unit = ???
+  override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
+    val buffer: ByteBuffer = ByteBuffer.allocate(1)
+    buffer.put(0.toByte)
+    buffer.flip()
+    targetPoller.writeSink(buffer)
+    ()
+  }
 
   private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
@@ -160,6 +165,10 @@ object UringSystem extends PollingSystem {
 
   final class Poller private[UringSystem] (ring: UringRing) {
 
+    private[this] val interruptPipe: Pipe = Pipe.open()
+    private[this] val interruptSource: Pipe.SourceChannel = interruptPipe.source()
+    private[this] val interruptSink: Pipe.SinkChannel = interruptPipe.sink()
+
     private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
 
@@ -188,6 +197,8 @@ object UringSystem extends PollingSystem {
         }
         .isDefined
 
+    private[UringSystem] def writeSink(buffer: ByteBuffer): Int = interruptSink.write(buffer)
+
     private[UringSystem] def getId(cb: Either[Throwable, Int] => Unit): Short = {
       val id: Short = getUniqueId()
 
@@ -212,7 +223,8 @@ object UringSystem extends PollingSystem {
     ): Boolean = {
       if (debug)
         println(
-          s"[SQ] Enqueuing a new Sqe in ringFd: ${ring.fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+          s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
+              .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
         )
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
@@ -225,7 +237,11 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
-    private[UringSystem] def close(): Unit = ring.close()
+    private[UringSystem] def close(): Unit = {
+      interruptSource.close()
+      interruptSink.close()
+      ring.close()
+    }
 
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty
 
@@ -243,7 +259,8 @@ object UringSystem extends PollingSystem {
               cb(
                 Left(
                   new IOException(
-                    s"Error in completion queue entry of the ring with fd: ${ring.fd()} with fd: $fd op: $op res: $res and data: $data"
+                    s"Error in completion queue entry of the ring with fd: ${ring
+                        .fd()} with fd: $fd op: $op res: $res and data: $data"
                   )
                 )
               )
@@ -252,7 +269,9 @@ object UringSystem extends PollingSystem {
           if (
             op != 11 && debug
           ) // To prevent the constant printouts of timeout operation when NANOS == -1
-            println(s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data")
+            println(
+              s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
+            )
 
           callbacks.get(data).foreach { cb =>
             handleCallback(res, cb)
@@ -275,16 +294,23 @@ object UringSystem extends PollingSystem {
         submitted
       }
 
-      println(s"POLLING! with nanos: $nanos")
+      if (debug) println(s"POLLING! with nanos: $nanos")
 
-      nanos match {
-        case -1 =>
-          if (pendingSubmissions) handlePendingSubmissions(true)
-          else handleTimeoutAndQueue(-1, true)
-        case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
-        case _ =>
-          if (pendingSubmissions) handlePendingSubmissions(true)
-          else handleTimeoutAndQueue(nanos, false)
+      val interruptBuffer: ByteBuffer = ByteBuffer.allocate(1)
+      if (interruptSource.read(interruptBuffer) > 0) {
+        // Data is available, it means an interrupt signal was sent
+        // Clear the data and return from poll or handle interrupt as needed
+        false
+      } else {
+        nanos match {
+          case -1 =>
+            if (pendingSubmissions) handlePendingSubmissions(true)
+            else handleTimeoutAndQueue(-1, true)
+          case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
+          case _ =>
+            if (pendingSubmissions) handlePendingSubmissions(true)
+            else handleTimeoutAndQueue(nanos, false)
+        }
       }
     }
 
