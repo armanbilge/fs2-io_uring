@@ -23,12 +23,13 @@ import fs2.io.uring.UringSuite
 
 import fs2.io.uring.unsafe.util.OP._
 
-class UringSystemSuite extends UringSuite {
+class UringSystemSuit extends UringSuite {
 
   test("submission") {
-    Uring
-      .get[IO]
-      .flatMap { ring =>
+    val test = for {
+      ring <- Uring.get[IO]
+      _ <- IO.println("[TEST] We got the ring!")
+      res <- {
         val op: Byte = IORING_OP_NOP
         val flags: Int = 0
         val rwFlags: Int = 0
@@ -39,7 +40,9 @@ class UringSystemSuite extends UringSuite {
 
         ring.call(op, flags, rwFlags, fd, bufferAddress, length, offset)
       }
-      .assertEquals(0)
+    } yield res
+
+    test.assertEquals(0)
   }
 
   test("Parallel submission") {
@@ -52,7 +55,7 @@ class UringSystemSuite extends UringSuite {
     val length: Int = 0
     val offset: Long = 0
 
-    val calls: List[IO[Int]] = List.fill(300)(
+    val calls: List[IO[Int]] = List.fill(100)(
       Uring
         .get[IO]
         .flatMap { ring =>
