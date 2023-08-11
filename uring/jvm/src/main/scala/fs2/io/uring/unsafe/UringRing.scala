@@ -74,6 +74,13 @@ final class UringRing(private[this] val ringBuffer: RingBuffer) {
     */
   def fd(): Int = ringBuffer.fd()
 
+  def sendMsgRing(flags: Int, fd: Int): Boolean = {
+    println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
+    uringSubmissionQueue.enqueueSqe(40, flags, 0, fd, 0, 0, 0, 0)
+    uringSubmissionQueue.submit()
+    uringCompletionQueue.hasCompletions()
+  }
+
   /** Closes the Ring, realising any associated resources.
     */
   def close(): Unit = ringBuffer.close()
@@ -622,7 +629,7 @@ object UringLinuxSocket {
 
 object UringSockaddrIn {
   val IPV6_ADDRESS_LENGTH = SockaddrIn.IPV6_ADDRESS_LENGTH
-  
+
   val IPV4_ADDRESS_LENGTH = SockaddrIn.IPV4_ADDRESS_LENGTH
 
   def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int =

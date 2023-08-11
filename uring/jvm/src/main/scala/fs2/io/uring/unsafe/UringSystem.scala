@@ -43,7 +43,9 @@ import java.util.BitSet
 
 object UringSystem extends PollingSystem {
 
-  private val extraPoller: Poller = new Poller(UringRing())
+  private val extraRing: UringRing = UringRing()
+
+  private val extraPoller: Poller = makePoller()
 
   private final val MaxEvents = 64
 
@@ -68,9 +70,15 @@ object UringSystem extends PollingSystem {
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
     println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
-    println(s"[INTERRUPT current thread: ${Thread.currentThread().getName()}]")
-    extraPoller.sendMsgRing(0, targetPoller.getFd())
-    ()
+    println(s"[INTERRUPT] current thread: ${Thread.currentThread().getName()}]")
+    if (targetThread == Thread.currentThread()) {
+      println("WE ARE IN THE SAME THREAD AS THE POLLER!!!!!!!!!!!")
+      targetPoller.sendMsgRing(0, targetPoller.getFd())
+      ()
+    } else {
+      extraRing.sendMsgRing(0, targetPoller.getFd())
+      ()
+    }
   }
 
   private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
@@ -115,7 +123,8 @@ object UringSystem extends PollingSystem {
           IO.async_[Int] { cb =>
             register { ring =>
               val cancelId = ring.getId(cb)
-              val opToCancel = Encoder.encode(fd, op, id)
+              val opToCancel = Encoder.encode(fd, op, id - 1)
+              println(s"[CANCEL] cancel id: $cancelId and op to cancel: $opToCancel")
               ring.cancel(opToCancel, cancelId)
               ()
             }
@@ -172,7 +181,7 @@ object UringSystem extends PollingSystem {
     private[this] val ids = new BitSet(Short.MaxValue)
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(0)
+      val newId = ids.nextClearBit(1)
       ids.set(newId)
       newId.toShort
     }
@@ -267,6 +276,7 @@ object UringSystem extends PollingSystem {
             handleCallback(res, cb)
             removeCallback(data)
           }
+
         }
       }
 
@@ -279,12 +289,14 @@ object UringSystem extends PollingSystem {
       // 2. Check for events based on nanos value
       nanos match {
         case -1 =>
+          println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
           cq.ioUringWaitCqe()
         case 0 =>
         // do nothing, just check without waiting
         case _ =>
+          println(s"[POLL] we are polling with nanos = $nanos")
           sq.addTimeout(nanos, getUniqueId())
-          cq.ioUringWaitCqe()
+          sq.submitAndWait()
       }
 
       // 3. Process the events
