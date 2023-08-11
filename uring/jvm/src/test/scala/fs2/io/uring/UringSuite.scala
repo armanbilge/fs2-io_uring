@@ -25,16 +25,16 @@ import scala.concurrent.duration._
 
 abstract class UringSuite extends CatsEffectSuite {
 
-  override lazy val munitIORuntime = {
-    val (pool, poller, shutdown) =
-      IORuntime.createWorkStealingComputeThreadPool(threads = 1, pollingSystem = UringSystem)
-    IORuntime.builder().setCompute(pool, shutdown).addPoller(poller, () => ()).build()
-  }
+  // override lazy val munitIORuntime = {
+  //   val (pool, poller, shutdown) =
+  //     IORuntime.createWorkStealingComputeThreadPool(threads = 1, pollingSystem = UringSystem)
+  //   IORuntime.builder().setCompute(pool, shutdown).addPoller(poller, () => ()).build()
+  // }
 
-  // override lazy val munitIORuntime =
-  //   IORuntimeBuilder()
-  //     .setPollingSystem(UringSystem)
-  //     .build()
+  override lazy val munitIORuntime =
+    IORuntimeBuilder()
+      .setPollingSystem(UringSystem)
+      .build()
 
-  override def munitIOTimeout: Duration = 1000000.second
+  override def munitIOTimeout: Duration = 6.second
 }

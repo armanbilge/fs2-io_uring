@@ -41,10 +41,9 @@ import java.io.IOException
 import scala.collection.mutable.Map
 import java.util.BitSet
 
-import java.nio.ByteBuffer
-import java.nio.channels.Pipe
-
 object UringSystem extends PollingSystem {
+
+  private val extraPoller: Poller = new Poller(UringRing())
 
   private final val MaxEvents = 64
 
@@ -69,10 +68,8 @@ object UringSystem extends PollingSystem {
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
     println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
-    val buffer: ByteBuffer = ByteBuffer.allocate(1)
-    buffer.put(0.toByte)
-    buffer.flip()
-    targetPoller.writeSink(buffer)
+    println(s"[INTERRUPT current thread: ${Thread.currentThread().getName()}]")
+    extraPoller.sendMsgRing(0, targetPoller.getFd())
     ()
   }
 
@@ -166,10 +163,6 @@ object UringSystem extends PollingSystem {
 
   final class Poller private[UringSystem] (ring: UringRing) {
 
-    private[this] val interruptPipe: Pipe = Pipe.open()
-    private[this] val interruptSource: Pipe.SourceChannel = interruptPipe.source()
-    private[this] val interruptSink: Pipe.SinkChannel = interruptPipe.sink()
-
     private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
 
@@ -179,7 +172,7 @@ object UringSystem extends PollingSystem {
     private[this] val ids = new BitSet(Short.MaxValue)
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(1)
+      val newId = ids.nextClearBit(0)
       ids.set(newId)
       newId.toShort
     }
@@ -197,8 +190,6 @@ object UringSystem extends PollingSystem {
           releaseId(id)
         }
         .isDefined
-
-    private[UringSystem] def writeSink(buffer: ByteBuffer): Int = interruptSink.write(buffer)
 
     private[UringSystem] def getId(cb: Either[Throwable, Int] => Unit): Short = {
       val id: Short = getUniqueId()
@@ -233,16 +224,16 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def cancel(opToCancel: Long, id: Short): Boolean =
       enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
 
-    private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean =
-      enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, 0)
+    private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean = {
+      println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
+      enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, getUniqueId())
+      sq.submit() > 0
+    }
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
-    private[UringSystem] def close(): Unit = {
-      interruptSource.close()
-      interruptSink.close()
+    private[UringSystem] def close(): Unit =
       ring.close()
-    }
 
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty
 
@@ -267,9 +258,7 @@ object UringSystem extends PollingSystem {
               )
             else cb(Right(res))
 
-          if (
-            op != 11 && debug
-          ) // To prevent the constant printouts of timeout operation when NANOS == -1
+          if (debug) // To prevent the constant printouts of timeout operation when NANOS == -1
             println(
               s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
             )
@@ -281,43 +270,25 @@ object UringSystem extends PollingSystem {
         }
       }
 
-      def handlePendingSubmissions(submitAndWait: Boolean): Boolean = {
-        if (submitAndWait) println("[HANDLE PENDING SUMBISSION] Submiting and waiting...")
-        else println("[HANDLE PENDING SUMBISSION] Submiting...")
-        val submitted = if (submitAndWait) sq.submitAndWait() > 0 else sq.submit() > 0
-        if (submitted) pendingSubmissions = false
-        println(s"[HANDLE PENDING SUBMISSION] submitted a positive number of operations: $submitted")
-        submitted
+      // 1. Submit pending operations if any
+      if (pendingSubmissions) {
+        sq.submit()
+        pendingSubmissions = false
       }
 
-      def handleTimeoutAndQueue(nanos: Long, submitAndWait: Boolean): Boolean = {
-        println(s"[HANDLE TIMEOUT AND QUEUE] adding timeout: $nanos")
-        sq.addTimeout(nanos, 0)
-        val submitted = handlePendingSubmissions(submitAndWait)
-        println(s"[HANDLE TIMEOUT AND QUEUE] waiting CQE")
-        cq.ioUringWaitCqe()
-        println(s"[HANDLE TIMEOUT AND QUEUE] processing CQ")
-        process(completionQueueCallback)
-        println(s"[HANDLE TIMEOUT AND QUEUE] submitted a positive number of operations: $submitted")
-        submitted
+      // 2. Check for events based on nanos value
+      nanos match {
+        case -1 =>
+          cq.ioUringWaitCqe()
+        case 0 =>
+        // do nothing, just check without waiting
+        case _ =>
+          sq.addTimeout(nanos, getUniqueId())
+          cq.ioUringWaitCqe()
       }
 
-      val interruptBuffer: ByteBuffer = ByteBuffer.allocate(1)
-      if (interruptSource.read(interruptBuffer) > 0) {
-        println("INTERRUPTED!")
-        interruptBuffer.clear()
-        false
-      } else {
-        nanos match {
-          case -1 =>
-            if (pendingSubmissions) handlePendingSubmissions(true)
-            else handleTimeoutAndQueue(-1, true)
-          case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
-          case _ =>
-            if (pendingSubmissions) handlePendingSubmissions(true)
-            else handleTimeoutAndQueue(nanos, false)
-        }
-      }
+      // 3. Process the events
+      process(completionQueueCallback)
     }
 
   }
