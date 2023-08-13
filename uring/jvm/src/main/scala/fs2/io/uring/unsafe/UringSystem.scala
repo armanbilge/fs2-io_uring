@@ -40,6 +40,9 @@ import java.io.IOException
 
 import scala.collection.mutable.Map
 import java.util.BitSet
+import io.netty.channel.unix.FileDescriptor
+import java.nio.ByteBuffer
+import io.netty.incubator.channel.uring.NativeAccess
 
 object UringSystem extends PollingSystem {
 
@@ -47,7 +50,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = true // True to printout operations
+  private val debug = false // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -67,9 +70,13 @@ object UringSystem extends PollingSystem {
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
-    println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
-    println(s"[INTERRUPT] current thread: ${Thread.currentThread().getName()}]")
-    extraRing.sendMsgRing(0, targetPoller.getFd()) // comment this line and change the number of threads in UringSuite to test 1 thread
+    if (debug) println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
+    if (debug) println(s"[INTERRUPT] current thread: ${Thread.currentThread().getName()}]")
+    // extraRing.sendMsgRing(
+    //   0,
+    //   targetPoller.getFd()
+    // ) // comment this line and change the number of threads in UringSuite to test 1 thread
+    targetPoller.writeFd()
     ()
   }
 
@@ -166,7 +173,11 @@ object UringSystem extends PollingSystem {
 
   final class Poller private[UringSystem] (ring: UringRing) {
 
-    private[UringSystem] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
+    val interruptFd = FileDescriptor.pipe()
+    val readEnd = interruptFd(0)
+    val writeEnd = interruptFd(1)
+
+    private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
 
     private[this] var pendingSubmissions: Boolean = false
@@ -174,15 +185,10 @@ object UringSystem extends PollingSystem {
       Map.empty[Short, Either[Throwable, Int] => Unit]
     private[this] val ids = new BitSet(Short.MaxValue)
 
-    // var counter = 1
     private[this] def getUniqueId(): Short = {
       val newId = ids.nextClearBit(1)
       ids.set(newId)
       newId.toShort
-      // val newId = counter
-      // counter = counter + 1
-      // newId.toShort
-
     }
 
     private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
@@ -221,7 +227,7 @@ object UringSystem extends PollingSystem {
         offset: Long,
         data: Short
     ): Boolean = {
-      if (debug)
+      if (debug || op == 14)
         println(
           s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
               .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
@@ -257,7 +263,7 @@ object UringSystem extends PollingSystem {
     private[this] val completionQueueCallback = new UringCompletionQueueCallback {
       override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
         def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
-          if (res < 0 )
+          if (res < 0)
             cb(
               Left(
                 new IOException(
@@ -286,6 +292,12 @@ object UringSystem extends PollingSystem {
     ): Boolean =
       cq.process(completionQueueCallback) > 0
 
+    private[UringSystem] def writeFd(): Int = {
+      val buf = ByteBuffer.allocateDirect(1)
+      buf.put(0.toByte)
+      buf.flip()
+      writeEnd.write(buf, 0, 1)
+    }
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
       // 1. Submit pending operations if any
@@ -294,37 +306,46 @@ object UringSystem extends PollingSystem {
       // 2. Check for events based on nanos value
       nanos match {
         case -1 =>
-          // println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
+          if (debug) println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
           if (submitted && !cq.hasCompletions()) {
+            if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
             cq.ioUringWaitCqe()
           } else {
-            sq.addTimeout(1000000000, 0)
-            false
+            // sq.addTimeout(0, 0)// replace 1 sec with 0
+            enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+            submit()
+            cq.ioUringWaitCqe()
+
+            val buf = ByteBuffer.allocateDirect(1)
+            readEnd.read(buf, 0, 1)
           }
         case 0 =>
         // do nothing, just check without waiting
         case _ =>
-          println(s"[POLL] we are polling with nanos = $nanos")
+          if (debug) println(s"[POLL] we are polling with nanos = $nanos")
 
           if (submitted && !cq.hasCompletions()) {
+            if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
             cq.ioUringWaitCqe()
+            if (sq.count() > 0) sq.submit()
+            if (cq.hasCompletions()) {
+              process(completionQueueCallback)
+            }
           } else {
-            println("[POLL] NOTHING WAS SUBMITTED")
-            sq.addTimeout(1000000000, 0) //
-            false
+            // sq.addTimeout(0, 0)// replace 1 sec with 0
+            enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+            submit()
+            cq.ioUringWaitCqe()
+
+            val buf = ByteBuffer.allocateDirect(1)
+            readEnd.read(buf, 0, 1)
+            // sq.addTimeout(nanos, 0) //
           }
       }
 
-      // println(s"are you here? $nanos")
-      // if (sq.submit() <= 0) {
-      //   sq.addTimeout(1000000000, 0)
-      //   return false
-      // }
-      // println("WE SUBMITTED SOMETHING!!!")
-      // cq.ioUringWaitCqe()
       // 3. Process the events
       val proc = process(completionQueueCallback)
-      println(s"[POLL] We processed cqe ? : $proc")
+      if (debug) println(s"[POLL] We processed cqe ? : $proc")
 
       proc
     }

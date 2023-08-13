@@ -75,7 +75,7 @@ final class UringRing(private[this] val ringBuffer: RingBuffer) {
   def fd(): Int = ringBuffer.fd()
 
   def sendMsgRing(flags: Int, fd: Int): Boolean = { // TODO bypass the submission queue
-    println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
+    // println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
     uringSubmissionQueue.enqueueSqe(40, flags, 0, fd, 0, 0, 0, 0)
     uringSubmissionQueue.submit()
     uringCompletionQueue.hasCompletions()
@@ -427,6 +427,8 @@ object NativeAccess {
   val AF_INET6 = Native.AF_INET6
 
   val SOCK_STREAM = 1
+
+  val POLLIN = Native.POLLIN
 
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
