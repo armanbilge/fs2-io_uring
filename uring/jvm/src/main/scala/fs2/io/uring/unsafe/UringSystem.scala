@@ -45,8 +45,6 @@ object UringSystem extends PollingSystem {
 
   private val extraRing: UringRing = UringRing()
 
-  private val extraPoller: Poller = makePoller()
-
   private final val MaxEvents = 64
 
   private val debug = true // True to printout operations
@@ -71,14 +69,8 @@ object UringSystem extends PollingSystem {
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
     println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
     println(s"[INTERRUPT] current thread: ${Thread.currentThread().getName()}]")
-    if (targetThread == Thread.currentThread()) {
-      println("WE ARE IN THE SAME THREAD AS THE POLLER!!!!!!!!!!!")
-      targetPoller.sendMsgRing(0, targetPoller.getFd())
-      ()
-    } else {
-      extraRing.sendMsgRing(0, targetPoller.getFd())
-      ()
-    }
+    extraRing.sendMsgRing(0, targetPoller.getFd()) // comment this line and change the number of threads in UringSuite to test 1 thread
+    ()
   }
 
   private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
@@ -123,9 +115,11 @@ object UringSystem extends PollingSystem {
           IO.async_[Int] { cb =>
             register { ring =>
               val cancelId = ring.getId(cb)
-              val opToCancel = Encoder.encode(fd, op, id - 1)
-              println(s"[CANCEL] cancel id: $cancelId and op to cancel: $opToCancel")
-              ring.cancel(opToCancel, cancelId)
+              val opAddressToCancel = Encoder.encode(fd, op, id)
+              println(
+                s"[CANCEL] cancel id: $cancelId and op to cancel is in address: $opAddressToCancel"
+              )
+              ring.cancel(opAddressToCancel, cancelId)
               ()
             }
           }
@@ -172,7 +166,7 @@ object UringSystem extends PollingSystem {
 
   final class Poller private[UringSystem] (ring: UringRing) {
 
-    private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
+    private[UringSystem] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
 
     private[this] var pendingSubmissions: Boolean = false
@@ -180,10 +174,15 @@ object UringSystem extends PollingSystem {
       Map.empty[Short, Either[Throwable, Int] => Unit]
     private[this] val ids = new BitSet(Short.MaxValue)
 
+    // var counter = 1
     private[this] def getUniqueId(): Short = {
       val newId = ids.nextClearBit(1)
       ids.set(newId)
       newId.toShort
+      // val newId = counter
+      // counter = counter + 1
+      // newId.toShort
+
     }
 
     private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
@@ -230,77 +229,104 @@ object UringSystem extends PollingSystem {
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
 
-    private[UringSystem] def cancel(opToCancel: Long, id: Short): Boolean =
-      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opToCancel, 0, 0, id)
+    private[UringSystem] def cancel(opAddressToCancel: Long, id: Short): Boolean =
+      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
 
-    private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean = {
-      println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
-      enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, getUniqueId())
-      sq.submit() > 0
-    }
+    // private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean = {
+    //   println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
+    //   enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, 0)
+    //   submit()
+    //   cq.ioUringWaitCqe()
+    //   cq.process(completionQueueCallback)
+    //   sq.submit() > 0
+    // }
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
     private[UringSystem] def close(): Unit =
       ring.close()
 
+    private[UringSystem] def submit(): Boolean = {
+      val submitted = sq.submit()
+      pendingSubmissions = false
+
+      submitted > 0
+    }
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty
+
+    private[this] val completionQueueCallback = new UringCompletionQueueCallback {
+      override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
+        def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
+          if (res < 0 )
+            cb(
+              Left(
+                new IOException(
+                  s"Error in completion queue entry of the ring with fd: ${ring
+                      .fd()} with fd: $fd op: $op res: $res and data: $data"
+                )
+              )
+            )
+          else cb(Right(res))
+
+        if (debug)
+          println(
+            s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
+          )
+
+        callbacks.get(data).foreach { cb =>
+          handleCallback(res, cb)
+          removeCallback(data)
+        }
+
+      }
+    }
+
+    private[this] def process(
+        completionQueueCallback: UringCompletionQueueCallback
+    ): Boolean =
+      cq.process(completionQueueCallback) > 0
 
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
-      def process(
-          completionQueueCallback: UringCompletionQueueCallback
-      ): Boolean =
-        cq.process(completionQueueCallback) > 0
-
-      val completionQueueCallback = new UringCompletionQueueCallback {
-        override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
-          def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
-            if (res < 0)
-              cb(
-                Left(
-                  new IOException(
-                    s"Error in completion queue entry of the ring with fd: ${ring
-                        .fd()} with fd: $fd op: $op res: $res and data: $data"
-                  )
-                )
-              )
-            else cb(Right(res))
-
-          if (debug) // To prevent the constant printouts of timeout operation when NANOS == -1
-            println(
-              s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
-            )
-
-          callbacks.get(data).foreach { cb =>
-            handleCallback(res, cb)
-            removeCallback(data)
-          }
-
-        }
-      }
-
       // 1. Submit pending operations if any
-      if (pendingSubmissions) {
-        sq.submit()
-        pendingSubmissions = false
-      }
+      val submitted = submit()
 
       // 2. Check for events based on nanos value
       nanos match {
         case -1 =>
-          println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
-          cq.ioUringWaitCqe()
+          // println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
+          if (submitted && !cq.hasCompletions()) {
+            cq.ioUringWaitCqe()
+          } else {
+            sq.addTimeout(1000000000, 0)
+            false
+          }
         case 0 =>
         // do nothing, just check without waiting
         case _ =>
           println(s"[POLL] we are polling with nanos = $nanos")
-          sq.addTimeout(nanos, getUniqueId())
-          sq.submitAndWait()
+
+          if (submitted && !cq.hasCompletions()) {
+            cq.ioUringWaitCqe()
+          } else {
+            println("[POLL] NOTHING WAS SUBMITTED")
+            sq.addTimeout(1000000000, 0) //
+            false
+          }
       }
 
+      // println(s"are you here? $nanos")
+      // if (sq.submit() <= 0) {
+      //   sq.addTimeout(1000000000, 0)
+      //   return false
+      // }
+      // println("WE SUBMITTED SOMETHING!!!")
+      // cq.ioUringWaitCqe()
       // 3. Process the events
-      process(completionQueueCallback)
+      val proc = process(completionQueueCallback)
+      println(s"[POLL] We processed cqe ? : $proc")
+
+      proc
     }
 
   }

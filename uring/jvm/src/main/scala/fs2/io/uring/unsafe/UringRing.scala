@@ -74,7 +74,7 @@ final class UringRing(private[this] val ringBuffer: RingBuffer) {
     */
   def fd(): Int = ringBuffer.fd()
 
-  def sendMsgRing(flags: Int, fd: Int): Boolean = {
+  def sendMsgRing(flags: Int, fd: Int): Boolean = { // TODO bypass the submission queue
     println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
     uringSubmissionQueue.enqueueSqe(40, flags, 0, fd, 0, 0, 0, 0)
     uringSubmissionQueue.submit()
