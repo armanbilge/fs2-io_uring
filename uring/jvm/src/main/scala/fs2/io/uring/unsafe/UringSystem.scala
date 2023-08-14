@@ -176,6 +176,7 @@ object UringSystem extends PollingSystem {
     val interruptFd = FileDescriptor.pipe()
     val readEnd = interruptFd(0)
     val writeEnd = interruptFd(1)
+    var wakingUp: Boolean = false
 
     private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
@@ -249,8 +250,11 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
-    private[UringSystem] def close(): Unit =
+    private[UringSystem] def close(): Unit = {
+      readEnd.close()
+      writeEnd.close()
       ring.close()
+    }
 
     private[UringSystem] def submit(): Boolean = {
       val submitted = sq.submit()
@@ -279,6 +283,16 @@ object UringSystem extends PollingSystem {
             s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
           )
 
+        if (fd == readEnd.intValue()) {
+          val buf = ByteBuffer.allocateDirect(1)
+          readEnd.read(buf, 0, 1) // we consume the fd
+          wakingUp = false // now we are not listening anymore to the fd
+        }
+        // if it is the operation handling the POLL_ADD (there was a write (interrupted))
+        // val buf = ByteBuffer.allocateDirect(1)
+        // readEnd.read(buf, 0, 1) // we consume the fd
+        // wakingUp = false // now we are not listening anymore to the fd
+
         callbacks.get(data).foreach { cb =>
           handleCallback(res, cb)
           removeCallback(data)
@@ -300,6 +314,11 @@ object UringSystem extends PollingSystem {
     }
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
+      if (!wakingUp) {
+        enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+        wakingUp = true
+      }
+
       // 1. Submit pending operations if any
       val submitted = submit()
 
@@ -312,12 +331,12 @@ object UringSystem extends PollingSystem {
             cq.ioUringWaitCqe()
           } else {
             // sq.addTimeout(0, 0)// replace 1 sec with 0
-            enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
-            submit()
+            // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+            // submit()
             cq.ioUringWaitCqe()
 
-            val buf = ByteBuffer.allocateDirect(1)
-            readEnd.read(buf, 0, 1)
+            // val buf = ByteBuffer.allocateDirect(1)
+            // readEnd.read(buf, 0, 1)
           }
         case 0 =>
         // do nothing, just check without waiting
@@ -333,12 +352,12 @@ object UringSystem extends PollingSystem {
             }
           } else {
             // sq.addTimeout(0, 0)// replace 1 sec with 0
-            enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
-            submit()
+            // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+            // submit()
             cq.ioUringWaitCqe()
 
-            val buf = ByteBuffer.allocateDirect(1)
-            readEnd.read(buf, 0, 1)
+            // val buf = ByteBuffer.allocateDirect(1)
+            // readEnd.read(buf, 0, 1)
             // sq.addTimeout(nanos, 0) //
           }
       }
