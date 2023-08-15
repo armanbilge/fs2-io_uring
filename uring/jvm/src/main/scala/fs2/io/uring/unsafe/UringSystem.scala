@@ -70,8 +70,10 @@ object UringSystem extends PollingSystem {
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
-    if (debug) println(s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread")
-    if (debug) println(s"[INTERRUPT] current thread: ${Thread.currentThread().getName()}]")
+    if (debug)
+      println(
+        s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread current thread: ${Thread.currentThread().getName()}"
+      )
     // extraRing.sendMsgRing(
     //   0,
     //   targetPoller.getFd()
@@ -173,6 +175,8 @@ object UringSystem extends PollingSystem {
 
   final class Poller private[UringSystem] (ring: UringRing) {
 
+    val test: FileDescriptor = NativeAccess.newBlockingEventFd
+
     val interruptFd = FileDescriptor.pipe()
     val readEnd = interruptFd(0)
     val writeEnd = interruptFd(1)
@@ -227,14 +231,13 @@ object UringSystem extends PollingSystem {
         length: Int,
         offset: Long,
         data: Short
-    ): Boolean = {
-      if (debug || op == 14)
-        println(
-          s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
-              .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
-        )
+    ): Boolean =
+      // if (debug || op == 14)
+      //   println(
+      //     s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
+      //         .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+      //   )
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
-    }
 
     private[UringSystem] def cancel(opAddressToCancel: Long, id: Short): Boolean =
       enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
@@ -251,6 +254,7 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def getFd(): Int = ring.fd()
 
     private[UringSystem] def close(): Unit = {
+      println("WE CLOSE EVERYTHING")
       readEnd.close()
       writeEnd.close()
       ring.close()
@@ -278,21 +282,21 @@ object UringSystem extends PollingSystem {
             )
           else cb(Right(res))
 
-        if (debug)
-          println(
-            s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
-          )
+        // if (debug) {
+        //   println(
+        //     s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
+        //   )
+        // }
 
         if (fd == readEnd.intValue()) {
           val buf = ByteBuffer.allocateDirect(1)
-          readEnd.read(buf, 0, 1) // we consume the fd
-          wakingUp = false // now we are not listening anymore to the fd
+          val readed = readEnd.read(buf, 0, 1) // we consume the fd
+          if (readed > 0) {
+            buf.clear()
+            wakingUp = false // We are not listening to the FD anymore
+          }
         }
-        // if it is the operation handling the POLL_ADD (there was a write (interrupted))
-        // val buf = ByteBuffer.allocateDirect(1)
-        // readEnd.read(buf, 0, 1) // we consume the fd
-        // wakingUp = false // now we are not listening anymore to the fd
-
+        
         callbacks.get(data).foreach { cb =>
           handleCallback(res, cb)
           removeCallback(data)
@@ -314,61 +318,171 @@ object UringSystem extends PollingSystem {
     }
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
+      // Check if we are listening to the FD. If not, start listening
       if (!wakingUp) {
-        enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
-        wakingUp = true
+        enqueueSqe(
+          IORING_OP_POLL_ADD,
+          0,
+          NativeAccess.POLLIN,
+          readEnd.intValue(),
+          0,
+          0,
+          0,
+          NativeAccess.POLLIN.toShort
+        )
+        sq.submit()
+        wakingUp = true // Set the flag indicating we're now listening
       }
 
-      // 1. Submit pending operations if any
-      val submitted = submit()
-
-      // 2. Check for events based on nanos value
+      var rtn = -1
       nanos match {
         case -1 =>
-          if (debug) println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
-          if (submitted && !cq.hasCompletions()) {
-            if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
-            cq.ioUringWaitCqe()
+          if (pendingSubmissions) {
+            rtn = sq.submitAndWait()
           } else {
-            // sq.addTimeout(0, 0)// replace 1 sec with 0
-            // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
-            // submit()
             cq.ioUringWaitCqe()
-
-            // val buf = ByteBuffer.allocateDirect(1)
-            // readEnd.read(buf, 0, 1)
           }
+
         case 0 =>
-        // do nothing, just check without waiting
+          if (pendingSubmissions) {
+            rtn = sq.submit()
+          }
+
         case _ =>
-          if (debug) println(s"[POLL] we are polling with nanos = $nanos")
-
-          if (submitted && !cq.hasCompletions()) {
-            if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
-            cq.ioUringWaitCqe()
-            if (sq.count() > 0) sq.submit()
-            if (cq.hasCompletions()) {
-              process(completionQueueCallback)
-            }
+          if (pendingSubmissions) {
+            sq.addTimeout(nanos, 0)
+            rtn = sq.submitAndWait()
           } else {
-            // sq.addTimeout(0, 0)// replace 1 sec with 0
-            // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
-            // submit()
+            sq.addTimeout(nanos, 0)
+            sq.submit()
             cq.ioUringWaitCqe()
-
-            // val buf = ByteBuffer.allocateDirect(1)
-            // readEnd.read(buf, 0, 1)
-            // sq.addTimeout(nanos, 0) //
           }
       }
 
-      // 3. Process the events
-      val proc = process(completionQueueCallback)
-      if (debug) println(s"[POLL] We processed cqe ? : $proc")
+      val invokedCbs = process(completionQueueCallback)
 
-      proc
+      // If pending submissions exist and we encountered an error, retry submission.
+      while (pendingSubmissions && rtn < 0)
+        rtn = sq.submit()
+
+      pendingSubmissions = false
+
+      invokedCbs
+
+      // if (!wakingUp) {
+      //   enqueueSqe(
+      //     IORING_OP_POLL_ADD,
+      //     0,
+      //     NativeAccess.POLLIN,
+      //     readEnd.intValue(),
+      //     0,
+      //     0,
+      //     0,
+      //     NativeAccess.POLLIN.toShort
+      //   )
+      //   sq.submit()
+      //   wakingUp = true
+      // }
+
+      // // 1. Submit pending operations if any
+      // val submitted = submit()
+
+      // // 2. Check for events based on nanos value
+      // nanos match {
+      //   case -1 =>
+      //     if (debug) println(s"[POLL] we are polling with nanos = -1, therefore we wait for a cqe")
+      //     if (submitted && !cq.hasCompletions()) {
+      //       // if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
+      //       cq.ioUringWaitCqe()
+      //     } else {
+      //       // sq.addTimeout(0, 0)// replace 1 sec with 0
+      //       // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+      //       // submit()
+      //       cq.ioUringWaitCqe()
+
+      //       // val buf = ByteBuffer.allocateDirect(1)
+      //       // readEnd.read(buf, 0, 1)
+      //     }
+      //   case 0 =>
+      //   // do nothing, just check without waiting
+      //   case _ =>
+      //     if (debug) println(s"[POLL] we are polling with nanos = $nanos")
+
+      //     if (submitted) {
+      //       // if (debug) println("[POLL] We are going to wait cqe (BLOCKING)")
+      //       cq.ioUringWaitCqe()
+      //       // if (sq.count() > 0) sq.submit()
+      //       // if (cq.hasCompletions()) {
+      //       //   process(completionQueueCallback)
+      //       // }
+      //     } else {
+      //       // sq.addTimeout(0, 0)// replace 1 sec with 0
+      //       // enqueueSqe(IORING_OP_POLL_ADD, NativeAccess.POLLIN, 0, readEnd.intValue(), 0, 0, 0, 0)
+      //       // submit()
+
+      //       cq.ioUringWaitCqe()
+
+      //       // val buf = ByteBuffer.allocateDirect(1)
+      //       // readEnd.read(buf, 0, 1)
+      //       // sq.addTimeout(nanos, 0) //
+      //     }
+      // }
+
+      // // 3. Process the events
+      // val proc = process(completionQueueCallback)
+      // // if (debug) println(s"[POLL] We processed cqe ? : $proc")
+
+      // proc
+
+      // if (!wakingUp) {
+      //   enqueueSqe(
+      //     IORING_OP_POLL_ADD,
+      //     0,
+      //     NativeAccess.POLLIN,
+      //     readEnd.intValue(),
+      //     0,
+      //     0,
+      //     0,
+      //     NativeAccess.POLLIN.toShort
+      //   )
+      //   sq.submit() // we start listening, it will be completed only when we call interrupt, therefore we don't want to submit and wait
+      //   wakingUp = true // Now we are listening
+      // }
+
+      // def handlePendingSubmissions(submitAndWait: Boolean): Boolean = {
+      //   // if (submitAndWait) println("[HANDLE PENDING SUMBISSION] Submiting and waiting...")
+      //   // else println("[HANDLE PENDING SUMBISSION] Submiting...")
+      //   val submitted = if (submitAndWait) sq.submitAndWait() > 0 else sq.submit() > 0
+      //   if (submitted) pendingSubmissions = false
+      //   // println(
+      //   //   s"[HANDLE PENDING SUBMISSION] submitted a positive number of operations: $submitted"
+      //   // )
+      //   submitted
+      // }
+
+      // def handleTimeoutAndQueue(nanos: Long, submitAndWait: Boolean): Boolean = {
+      //   // println(s"[HANDLE TIMEOUT AND QUEUE] adding timeout: $nanos")
+      //   sq.addTimeout(nanos, 0)
+      //   val submitted = handlePendingSubmissions(submitAndWait)
+      //   // println(s"[HANDLE TIMEOUT AND QUEUE] waiting CQE")
+      //   cq.ioUringWaitCqe()
+      //   // println(s"[HANDLE TIMEOUT AND QUEUE] processing CQ")
+      //   process(completionQueueCallback)
+      //   // println(s"[HANDLE TIMEOUT AND QUEUE] submitted a positive number of operations: $submitted")
+      //   submitted
+      // }
+
+      // nanos match {
+      //   case -1 =>
+      //     if (pendingSubmissions) handlePendingSubmissions(true)
+      //     else handleTimeoutAndQueue(-1, true)
+      //   case 0 => if (pendingSubmissions) handlePendingSubmissions(false) else false
+      //   case _ =>
+      //     if (pendingSubmissions) handlePendingSubmissions(true)
+      //     else handleTimeoutAndQueue(nanos, false)
+      // }
+
     }
 
   }
-
 }

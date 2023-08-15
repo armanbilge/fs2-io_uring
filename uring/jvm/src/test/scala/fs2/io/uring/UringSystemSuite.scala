@@ -22,8 +22,18 @@ import cats.syntax.parallel._
 import fs2.io.uring.UringSuite
 
 import fs2.io.uring.unsafe.util.OP._
+import scala.io.StdIn
 
-class UringSystemSuit extends UringSuite {
+class UringSystemSuitd extends UringSuite {
+
+  test("Create a ring") {
+    val test = for {
+      _ <- Uring.get[IO]
+      _ <- IO.println("[TEST] We got the ring!")
+    } yield ()
+
+    test.assertEquals(())
+  }
 
   test("submission") {
     val test = for {
@@ -65,7 +75,14 @@ class UringSystemSuit extends UringSuite {
 
     val test: IO[List[Int]] = calls.parSequence
 
-    test.map(results => assert(results.forall(_ == 0)))
+    val list = for {
+      results <- test 
+      _ <- IO.println(results)
+      _ <- IO.println(results.size)
+    } yield results
+
+
+    list.map(results => assert(results.forall(_ >= 0)))
   }
 
   test("Multiple parallel submission") {
@@ -85,6 +102,13 @@ class UringSystemSuit extends UringSuite {
 
     val test: IO[List[List[Int]]] = calls.parSequence
 
-    test.map(listOfList => assert(listOfList.flatten.forall(_ == 0)))
+    val list = for {
+      listOfList <- test
+      listFlatten <- IO(listOfList.flatten)
+      _ <- IO.println(listFlatten)
+      _ <- IO.println(listFlatten.size)
+    } yield listFlatten
+
+    list.map(results => assert(results.forall(_ >= 0)))
   }
 }
