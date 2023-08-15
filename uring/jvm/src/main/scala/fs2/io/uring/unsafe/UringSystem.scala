@@ -50,7 +50,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false // True to printout operations
+  private val debug = true // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -74,10 +74,7 @@ object UringSystem extends PollingSystem {
       println(
         s"[INTERRUPT] waking up poller: $targetPoller in thread: $targetThread current thread: ${Thread.currentThread().getName()}"
       )
-    // extraRing.sendMsgRing(
-    //   0,
-    //   targetPoller.getFd()
-    // ) // comment this line and change the number of threads in UringSuite to test 1 thread
+    // extraRing.sendMsgRing(0, targetPoller.getFd())
     targetPoller.writeFd()
     ()
   }
@@ -180,7 +177,7 @@ object UringSystem extends PollingSystem {
     val interruptFd = FileDescriptor.pipe()
     val readEnd = interruptFd(0)
     val writeEnd = interruptFd(1)
-    var wakingUp: Boolean = false
+    var listenFd: Boolean = false
 
     private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
     private[this] val cq: UringCompletionQueue = ring.ioUringCompletionQueue()
@@ -191,7 +188,7 @@ object UringSystem extends PollingSystem {
     private[this] val ids = new BitSet(Short.MaxValue)
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(1)
+      val newId = ids.nextClearBit(10)
       ids.set(newId)
       newId.toShort
     }
@@ -202,10 +199,10 @@ object UringSystem extends PollingSystem {
       callbacks
         .remove(id)
         .map { _ =>
-          if (debug) {
-            println(s"REMOVED CB WITH ID: $id")
-            println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
-          }
+          // if (debug) {
+          //   println(s"REMOVED CB WITH ID: $id")
+          //   println(s"CALLBACK MAP UPDATED AFTER REMOVING: $callbacks")
+          // }
           releaseId(id)
         }
         .isDefined
@@ -215,10 +212,10 @@ object UringSystem extends PollingSystem {
 
       pendingSubmissions = true
       callbacks.put(id, cb)
-      if (debug) {
-        println("GETTING ID")
-        println(s"CALLBACK MAP UPDATED: $callbacks")
-      }
+      // if (debug) {
+      //   println("GETTING ID")
+      //   println(s"CALLBACK MAP UPDATED: $callbacks")
+      // }
       id
     }
 
@@ -231,16 +228,23 @@ object UringSystem extends PollingSystem {
         length: Int,
         offset: Long,
         data: Short
-    ): Boolean =
-      // if (debug || op == 14)
-      //   println(
-      //     s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
-      //         .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
-      //   )
+    ): Boolean = {
+      if (debug || op == 14)
+        println(
+          s"[SQ] Enqueuing a new Sqe in ringFd: ${ring
+              .fd()} with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
+        )
+
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
+    }
 
     private[UringSystem] def cancel(opAddressToCancel: Long, id: Short): Boolean =
-      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
+      if (callbacks.contains(id)) {
+        enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
+      } else {
+        println("[CANCEL] the cb has already been handled")
+        false
+      }
 
     // private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean = {
     //   println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
@@ -282,24 +286,41 @@ object UringSystem extends PollingSystem {
             )
           else cb(Right(res))
 
-        // if (debug) {
-        //   println(
-        //     s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
-        //   )
-        // }
+        if (op == 14 || op == 19) {
+          println(
+            s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
+          )
+        }
 
         if (fd == readEnd.intValue()) {
           val buf = ByteBuffer.allocateDirect(1)
           val readed = readEnd.read(buf, 0, 1) // we consume the fd
           if (readed > 0) {
             buf.clear()
-            wakingUp = false // We are not listening to the FD anymore
+            listenFd = false // We are not listening to the FD anymore
           }
         }
-        
-        callbacks.get(data).foreach { cb =>
-          handleCallback(res, cb)
-          removeCallback(data)
+
+        if (op == 14) {
+          if (callbacks.contains(data)) {
+            println("[CANCEL] it hasn't been processed yet!")
+            callbacks.get(data).foreach { cb =>
+              handleCallback(res, cb)
+              removeCallback(data)
+            }
+          } else {
+            println("[CANCEL] it has already been processed!")
+            callbacks.get(data).foreach { cb =>
+              handleCallback(res, cb)
+              removeCallback(data)
+            }
+          }
+        } else {
+
+          callbacks.get(data).foreach { cb =>
+            handleCallback(res, cb)
+            removeCallback(data)
+          }
         }
 
       }
@@ -319,7 +340,7 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def poll(nanos: Long): Boolean = {
 
       // Check if we are listening to the FD. If not, start listening
-      if (!wakingUp) {
+      if (!listenFd) {
         enqueueSqe(
           IORING_OP_POLL_ADD,
           0,
@@ -330,9 +351,11 @@ object UringSystem extends PollingSystem {
           0,
           NativeAccess.POLLIN.toShort
         )
-        sq.submit()
-        wakingUp = true // Set the flag indicating we're now listening
+        pendingSubmissions = true
+        listenFd = true // Set the flag indicating we're now listening
       }
+
+      if (debug) println(s"[POLL ${Thread.currentThread().getName()}]Polling with nanos = $nanos")
 
       var rtn = -1
       nanos match {
@@ -362,7 +385,7 @@ object UringSystem extends PollingSystem {
       val invokedCbs = process(completionQueueCallback)
 
       // If pending submissions exist and we encountered an error, retry submission.
-      while (pendingSubmissions && rtn < 0)
+      while (pendingSubmissions && rtn <= 0)
         rtn = sq.submit()
 
       pendingSubmissions = false
