@@ -205,14 +205,14 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       - io_uring doesn't have a bind, listen or getLocalAddress operators.
       - Is it possible to create a LinuxSocket using the fd created by the ring ? This would solve the problem.
    */
-  private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
-    val domain = if (ipv6) AF_INET6 else AF_INET
-    ring
-      .bracket(op = IORING_OP_SOCKET, fd = domain, length = 0, offset = SOCK_STREAM)(
-        closeSocket(ring, _)
-      )
-      .mapK(LiftIO.liftK)
-  }
+  // private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
+  //   val domain = if (ipv6) AF_INET6 else AF_INET
+  //   ring
+  //     .bracket(op = IORING_OP_SOCKET, fd = domain, length = 0, offset = SOCK_STREAM)(
+  //       closeSocket(ring, _)
+  //     )
+  //     .mapK(LiftIO.liftK)
+  // }
 
   private[this] def closeSocket(ring: Uring, fd: Int): IO[Unit] =
     ring.call(op = IORING_OP_CLOSE, fd = fd).void
