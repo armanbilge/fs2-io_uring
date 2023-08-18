@@ -151,6 +151,10 @@ object UringSystem extends PollingSystem {
                 println(s"[CANCEL] We are cancelling from another ring!: from: ${ring
                     .getFd()} and we want to cancel in: ${correctRing.getFd()}")
                 correctRing.cancelFromOtherRing(opAddressToCancel, cb)
+                
+                // wake up:
+                ring.enqueueSqe(40, 0, 0, correctRing.getFd(), 0, 0, 0, 0)
+                ring.submit()
               }
               ()
             }
@@ -255,6 +259,8 @@ object UringSystem extends PollingSystem {
       id
     }
 
+    private[UringSystem] def submit() = sq.submit()
+
     private[UringSystem] def enqueueSqe(
         op: Byte,
         flags: Int,
@@ -276,7 +282,7 @@ object UringSystem extends PollingSystem {
 
     private[this] def cancel(opAddressToCancel: Long, id: Short): Unit = {
       enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
-      sq.submit()
+      // sq.submit()
       ()
     }
 
@@ -288,7 +294,8 @@ object UringSystem extends PollingSystem {
       // println(s"WE GOT THE ID: $id")
       println(s"WE ADDED THE OPERATION TO CANCEL")
       cancelOperations.add((opAddressToCancel, cb))
-      // wakeup()
+
+      // wakeup() TODO: we don't want to interrupt this poller from a different thread
     }
 
     private[UringSystem] def getFd(): Int = ring.fd()
@@ -329,7 +336,7 @@ object UringSystem extends PollingSystem {
               )
             else cb(Right(res))
 
-          if (op == 14) {
+          if (op == 14 || op == 40) {
             println(
               s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
             )
