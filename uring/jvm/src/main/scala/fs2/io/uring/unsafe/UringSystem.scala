@@ -49,7 +49,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false // True to printout operations
+  private val debug = true // True to printout operations
   type Api = Uring
 
   override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
@@ -71,7 +71,7 @@ object UringSystem extends PollingSystem {
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
     if (debug)
       println(
-        s"[INTERRUPT ${Thread.currentThread().getName()}] waking up poller: $targetPoller in thread: $targetThread"
+        s"[INTERRUPT ${Thread.currentThread().getName()}] waking up poller: ${targetPoller.getFd()} in thread: $targetThread"
       )
     // Interrupt using an extra ring
     // targetPoller.wakeup()
@@ -155,6 +155,7 @@ object UringSystem extends PollingSystem {
                 // wake up:
                 ring.enqueueSqe(40, 0, 0, correctRing.getFd(), 0, 0, 0, 0)
                 ring.submit()
+                
               }
               ()
             }
@@ -394,7 +395,6 @@ object UringSystem extends PollingSystem {
             cancel(opAddressToCancel, id)
           }
         }
-        sq.submit()
         cancelOperations.clear()
       }
 
