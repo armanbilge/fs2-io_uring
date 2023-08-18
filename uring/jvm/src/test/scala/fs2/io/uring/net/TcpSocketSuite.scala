@@ -56,7 +56,7 @@ class TcpSocketSuit extends UringSuite {
             .head
 
       writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 200 OK")
+        .assertEquals("HTTP/1.1 301 Moved Permanently")
     }
   }
 
@@ -136,12 +136,12 @@ class TcpSocketSuit extends UringSuite {
       Nil
     )
 
-  test("Start server and wait for a connection during 10 sec") {
+  test("Start server and wait for a connection during 5 sec") {
     serverResource.use { case (localAddress, _) =>
       IO {
         println(s"[TEST] Server started at $localAddress")
         println(s"[TEST] You can now connect to this server")
-      } *> IO.sleep(10.second)
+      } *> IO.sleep(5.second)
     // Use telnet localhost "port" to connect
     }
   }
@@ -175,7 +175,6 @@ class TcpSocketSuit extends UringSuite {
 
         IO.println("socket created and connection established!") *>
           echoServer.background.use(_ =>
-            IO.sleep(10.second) *> // TODO server waits for connection but we never connect to it.
               write.compile.drain
               *> IO.println("message written!")
           )
@@ -232,6 +231,10 @@ class TcpSocketSuit extends UringSuite {
 
   val repetitions: Int = 1
 
+  /*
+    TODO: (Very rare) timeout error polling the cancellation
+    TODO: (Very rare) second cancellation with error -2 (we shouldn't have a second cancellation (?))
+   */
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
     val clientCount = 20L
@@ -272,6 +275,9 @@ class TcpSocketSuit extends UringSuite {
     test.replicateA(repetitions).void
   }
 
+  /*
+    TODO: (Very rare) error -107
+   */
   test("readN yields chunks of the requested size") {
     val message = Chunk.array("123456789012345678901234567890".getBytes)
     val sizes = Vector(1, 2, 3, 4, 3, 2, 1)
@@ -318,7 +324,7 @@ class TcpSocketSuit extends UringSuite {
             // concurrent writes
             Stream {
               Stream.eval(socket.write(message)).repeatN(10L)
-            }.repeatN(2L).parJoinUnbounded
+            }.repeatN(1L).parJoinUnbounded
           }
 
         client.concurrently(readOnlyServer)

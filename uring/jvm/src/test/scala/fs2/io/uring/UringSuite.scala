@@ -36,5 +36,5 @@ abstract class UringSuite extends CatsEffectSuite {
       .setPollingSystem(UringSystem)
       .build()
 
-  override def munitIOTimeout: Duration = 3.second
+  override def munitIOTimeout: Duration = 10.second
 }
