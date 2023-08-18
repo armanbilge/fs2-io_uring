@@ -129,16 +129,29 @@ object UringSystem extends PollingSystem {
           - If the ring for current thrad matches the ring we need to send cancel to, submit the cancel right away
           - otherwise we access the cancel queue for that ring, we add the op and we interrupt the ring so it process the cancel
        */
-      def cancel(id: Short): IO[Boolean] = // We need access to the correct ring
+      def cancel(
+          id: Short,
+          correctRing: Poller
+      ): IO[Boolean] = // We need access to the correct ring
         IO.uncancelable { _ =>
           IO.async_[Int] { cb =>
             register { ring =>
-              val cancelId = ring.getId(cb)
               val opAddressToCancel = Encoder.encode(fd, op, id)
               println(
-                s"[CANCEL] from fd: $fd cancel id: $cancelId and op to cancel is in address: $opAddressToCancel"
+                s"[CANCEL] from fd: ${ring.getFd()} cancel id:  and op to cancel is in address: $opAddressToCancel"
               )
-              ring.cancel(opAddressToCancel, cancelId)
+              if (correctRing == ring) {
+                val cancelId = ring.getId(cb)
+                println(
+                  s"[CANCEL] We are cancelling from the same ring!: ${ring.getFd()} and ${correctRing.getFd()}"
+                )
+                ring.enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, cancelId)
+              } else {
+                // val cancelId = correctRing.getId(cb)
+                println(s"[CANCEL] We are cancelling from another ring!: from: ${ring
+                    .getFd()} and we want to cancel in: ${correctRing.getFd()}")
+                correctRing.cancelFromOtherRing(opAddressToCancel, cb)
+              }
               ()
             }
           }
@@ -150,19 +163,19 @@ object UringSystem extends PollingSystem {
               F: MonadCancelThrow[F]
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
-              val submit: IO[Short] = IO.async_[Short] { cb =>
+              val submit: IO[(Short, Poller)] = IO.async_[(Short, Poller)] { cb =>
                 register { ring =>
                   val id = ring.getId(resume)
                   ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
-                  cb(Right(id)) // pass the pair (id, ring)
+                  cb(Right((id, ring))) // pass the pair (id, ring)
                 }
               }
 
               lift(submit)
-                .flatMap { id => // (id, ring)
+                .flatMap { case (id, ring) => // (id, ring)
                   F.onCancel(
                     poll(get),
-                    lift(cancel(id)).ifM( // pass cancel(id, ring)
+                    lift(cancel(id, ring)).ifM( // pass cancel(id, ring)
                       F.unit,
                       // if cannot cancel, fallback to get
                       get.flatMap { rtn =>
@@ -197,7 +210,7 @@ object UringSystem extends PollingSystem {
 
     private[this] val extraRing: UringRing = UringRing()
 
-    private[this] val cancelOperations: ConcurrentLinkedDeque[(Long, Short)] =
+    private[this] val cancelOperations: ConcurrentLinkedDeque[(Long, Either[Throwable, Int] => Unit)] =
       new ConcurrentLinkedDeque()
 
     private[this] val sq: UringSubmissionQueue = ring.ioUringSubmissionQueue()
@@ -261,22 +274,22 @@ object UringSystem extends PollingSystem {
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
 
-    private[UringSystem] def cancel(opAddressToCancel: Long, id: Short): Boolean =
-      if (callbacks.contains(id)) {
-        enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
-      } else {
-        println("[CANCEL] the cb has already been handled")
-        false
-      }
+    private[this] def cancel(opAddressToCancel: Long, id: Short): Unit = {
+      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
+      sq.submit()
+      ()
+    }
 
-    // private[UringSystem] def sendMsgRing(flags: Int, fd: Int): Boolean = {
-    //   println(s"[SENDMESSAGE] current thread: ${Thread.currentThread().getName()}]")
-    //   enqueueSqe(IORING_OP_MSG_RING, flags, 0, fd, 0, 0, 0, 0)
-    //   submit()
-    //   cq.ioUringWaitCqe()
-    //   cq.process(completionQueueCallback)
-    //   sq.submit() > 0
-    // }
+    private[UringSystem] def cancelFromOtherRing(
+        opAddressToCancel: Long,
+        cb: Either[Throwable, Int] => Unit
+    ): Boolean = {
+      // val id = getId(cb)
+      // println(s"WE GOT THE ID: $id")
+      println(s"WE ADDED THE OPERATION TO CANCEL")
+      cancelOperations.add((opAddressToCancel, cb))
+      // wakeup()
+    }
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
@@ -316,7 +329,7 @@ object UringSystem extends PollingSystem {
               )
             else cb(Right(res))
 
-          if (op == 14 || op == 19) {
+          if (op == 14) {
             println(
               s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
             )
@@ -363,6 +376,19 @@ object UringSystem extends PollingSystem {
         )
         pendingSubmissions = true
         listenFd = true // Set the flag indicating we're now listening
+      }
+
+      if (!cancelOperations.isEmpty()) {
+        println("THE CANCEL QUEUE IT IS NOT EMPTY!")
+
+        cancelOperations.forEach { 
+          case (opAddressToCancel, cb) => {
+            val id = getId(cb)
+            cancel(opAddressToCancel, id)
+          }
+        }
+        sq.submit()
+        cancelOperations.clear()
       }
 
       if (debug) println(s"[POLL ${Thread.currentThread().getName()}]Polling with nanos = $nanos")
