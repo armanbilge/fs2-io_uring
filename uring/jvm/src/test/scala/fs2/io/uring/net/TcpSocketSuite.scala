@@ -229,10 +229,9 @@ class TcpSocketSuit extends UringSuite {
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
-  val repetitions: Int = 1
+  val repetitions: Int = 5
 
   /*
-    TODO: (Very rare) timeout error polling the cancellation
     TODO: (Very rare) second cancellation with error -2 (we shouldn't have a second cancellation (?))
    */
   test("echo requests - each concurrent client gets back what it sent") {

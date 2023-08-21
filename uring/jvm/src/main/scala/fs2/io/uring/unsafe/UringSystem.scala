@@ -138,7 +138,7 @@ object UringSystem extends PollingSystem {
             register { ring =>
               val opAddressToCancel = Encoder.encode(fd, op, id)
               println(
-                s"[CANCEL] from fd: ${ring.getFd()} cancel id:  and op to cancel is in address: $opAddressToCancel"
+                s"[CANCEL] from fd: ${ring.getFd()} cancel an operation $op with id: $id and op to cancel is in address: $opAddressToCancel"
               )
               if (correctRing == ring) {
                 val cancelId = ring.getId(cb)
@@ -146,6 +146,7 @@ object UringSystem extends PollingSystem {
                   s"[CANCEL] We are cancelling from the same ring!: ${ring.getFd()} and ${correctRing.getFd()}"
                 )
                 ring.enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, cancelId)
+                ring.submit()
               } else {
                 // val cancelId = correctRing.getId(cb)
                 println(s"[CANCEL] We are cancelling from another ring!: from: ${ring
@@ -153,8 +154,8 @@ object UringSystem extends PollingSystem {
                 correctRing.cancelFromOtherRing(opAddressToCancel, cb)
                 
                 // wake up:
-                ring.enqueueSqe(40, 0, 0, correctRing.getFd(), 0, 0, 0, 0)
-                ring.submit()
+                // ring.enqueueSqe(40, 0, 0, correctRing.getFd(), 0, 0, 0, 0)
+                // ring.submit()
                 
               }
               ()
@@ -296,7 +297,8 @@ object UringSystem extends PollingSystem {
       println(s"WE ADDED THE OPERATION TO CANCEL")
       cancelOperations.add((opAddressToCancel, cb))
 
-      // wakeup() TODO: we don't want to interrupt this poller from a different thread
+      writeFd() >= 0
+      // wakeup() // TODO: we don't want to interrupt this poller from a different thread
     }
 
     private[UringSystem] def getFd(): Int = ring.fd()
@@ -337,7 +339,7 @@ object UringSystem extends PollingSystem {
               )
             else cb(Right(res))
 
-          if (op == 14 || op == 40) {
+          if (op == 14 || op == 40 || res < 0) {
             println(
               s"[HANDLE CQCB]: ringfd: ${ring.fd()} fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
             )
@@ -389,6 +391,7 @@ object UringSystem extends PollingSystem {
       if (!cancelOperations.isEmpty()) {
         println("THE CANCEL QUEUE IT IS NOT EMPTY!")
 
+        println(s"THE QUEUE HAS: ${cancelOperations.size()} ELEMENTS")
         cancelOperations.forEach { 
           case (opAddressToCancel, cb) => {
             val id = getId(cb)
@@ -416,10 +419,10 @@ object UringSystem extends PollingSystem {
 
         case _ =>
           if (pendingSubmissions) {
-            sq.addTimeout(nanos, 0)
+            sq.addTimeout(1000000000, 0)
             rtn = sq.submitAndWait()
           } else {
-            sq.addTimeout(nanos, 0)
+            sq.addTimeout(1000000000, 0)
             sq.submit()
             cq.ioUringWaitCqe()
           }
