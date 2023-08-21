@@ -34,7 +34,6 @@ ThisBuild / githubWorkflowBuild +=
 val ceVersion = "3.6-0142603"
 val fs2Version = "3.7.0"
 val munitCEVersion = "2.0.0-M3"
-val jnaVersion = "5.8.0"
 
 ThisBuild / nativeConfig ~= { c =>
   val arch = System.getProperty("os.arch").toLowerCase()
@@ -55,7 +54,6 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
       "org.typelevel" %%% "cats-effect" % ceVersion,
       "co.fs2" %%% "fs2-io" % fs2Version,
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test,
-      "net.java.dev.jna" % "jna" % jnaVersion, // JNA to import C code to java
       ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % "0.0.21.Final")
         .classifier("linux-x86_64")
     ),
