@@ -594,22 +594,33 @@ final class UringIov() {
   def readBufferLength(iovAddress: Long): Int = Iov.readBufferLength(iovAddress)
 }
 
+/** Represents a Linux socket with utility methods like bind, listen or accept.
+  * @param socket The underlying Linux socket.
+  */
 final class UringLinuxSocket(private[this] val socket: LinuxSocket) {
 
+  /** Returns the local address of the socket. */
   def getLocalAddress(): InetSocketAddress = socket.localAddress()
 
+  /** Returns the remote address of the socket. */
   def getRemoteAddress(): InetSocketAddress = socket.remoteAddress()
 
+  /** Returns the internet protocol family of the socket. */
   def family(): InternetProtocolFamily = socket.family()
 
+  /** Checks if the socket is using IPv6. */
   def isIpv6(): Boolean = socket.isIpv6()
 
+  /** Returns the file descriptor of the socket. */
   def fd(): Int = socket.intValue()
 
+  /** Binds the socket to the specified address. */
   def bind(socketAddress: SocketAddress): Unit = socket.bind(socketAddress)
 
+  /** Listens for connections with a specified backlog. */
   def listen(backlog: Int): Unit = socket.listen(backlog)
 
+  /** Accepts a connection and returns the file descriptor of the new socket. */
   def accept(addr: Array[Byte]): Int = socket.accept(addr)
 
 }
@@ -617,31 +628,40 @@ final class UringLinuxSocket(private[this] val socket: LinuxSocket) {
 object UringLinuxSocket {
   def apply(fd: Int): UringLinuxSocket = new UringLinuxSocket(new LinuxSocket(fd))
 
+  /** Creates a new TCP socket and wraps it in a `UringLinuxSocket`. */
   def newSocketStream(): UringLinuxSocket = new UringLinuxSocket(LinuxSocket.newSocketStream())
 
+  /** Creates a new TCP socket (with optional IPv6) and wraps it in a `UringLinuxSocket`. */
   def newSocketStream(ipv6: Boolean): UringLinuxSocket = new UringLinuxSocket(
     LinuxSocket.newSocketStream(ipv6)
   )
 
+  /** Creates a new datagram socket and wraps it in a `UringLinuxSocket`. */
   def newSocketDatagram(): UringLinuxSocket = new UringLinuxSocket(LinuxSocket.newSocketDgram())
 
+  /** Creates a new datagram socket (with optional IPv6) and wraps it in a `UringLinuxSocket`. */
   def newSocketDatagram(ipv6: Boolean): UringLinuxSocket = new UringLinuxSocket(
     LinuxSocket.newSocketDgram(ipv6)
   )
 
 }
 
+/** Provides utility methods to work with IPv4 and IPv6 socket addresses in Netty io_uring.
+  */
 object UringSockaddrIn {
   val IPV6_ADDRESS_LENGTH = SockaddrIn.IPV6_ADDRESS_LENGTH
 
   val IPV4_ADDRESS_LENGTH = SockaddrIn.IPV4_ADDRESS_LENGTH
 
+  /** Writes the socket address to memory. */
   def write(ipv6: Boolean, memory: Long, address: InetSocketAddress): Int =
     SockaddrIn.write(ipv6, memory, address)
 
+  /** Reads an IPv4 address from memory. */
   def readIPv4(memory: Long, tmpArray: Array[Byte]): InetSocketAddress =
     SockaddrIn.readIPv4(memory, tmpArray)
 
+  /** Reads an IPv6 address from memory. */
   def readIPv6(memory: Long, ipv6Array: Array[Byte], ipv4Array: Array[Byte]): InetSocketAddress =
     SockaddrIn.readIPv6(memory, ipv6Array, ipv4Array)
 }
