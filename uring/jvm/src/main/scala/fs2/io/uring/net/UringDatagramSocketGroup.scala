@@ -1,28 +1,32 @@
+/*
+ * Copyright 2022 Arman Bilge
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fs2.io.uring.net
 
-import cats.effect.IO
-import cats.effect.LiftIO
-import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
-import cats.syntax.all._
 
 import com.comcast.ip4s._
 
-import fs2.Stream
-import fs2.io.net.Socket
-import fs2.io.net.SocketGroup
-import fs2.io.net.SocketOption
 import fs2.io.net.DatagramSocketGroup
 import fs2.io.net.DatagramSocket
 import fs2.io.net._
 
-import fs2.io.uring.Uring
-import fs2.io.uring.unsafe.util.OP._
-
 import java.net.ProtocolFamily
 
-private final class UringDatagramSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
-    extends DatagramSocketGroup[F] {
+private final class UringDatagramSocketGroup[F[_]] extends DatagramSocketGroup[F] {
 
   override def openDatagramSocket(
       address: Option[Host],
@@ -34,5 +38,5 @@ private final class UringDatagramSocketGroup[F[_]: LiftIO](implicit F: Async[F],
 }
 
 object UringDatagramSocketGroup {
-  def apply[F[_]: Async: Dns: LiftIO]: DatagramSocketGroup[F] = new UringDatagramSocketGroup
+  def apply[F[_]]: DatagramSocketGroup[F] = new UringDatagramSocketGroup
 }
