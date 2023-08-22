@@ -43,6 +43,10 @@ import java.net.InetSocketAddress
 private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dns[F])
     extends SocketGroup[F] {
 
+  private val debug = false
+  private val debugClient = debug && true
+  private val debugServer = debug && true
+
   private[this] def createBufferAux(isIpv6: Boolean): Resource[F, ByteBuf] =
     if (isIpv6) createBuffer(SIZEOF_SOCKADDR_IN6) else createBuffer(SIZEOF_SOCKADDR_IN)
 
@@ -60,14 +64,17 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       createBufferAux(isIpv6).use { buf => // Write address in the buffer and call connect
         for {
           length <- F.delay(write(isIpv6, buf.memoryAddress(), address.toInetSocketAddress))
-          _ <- F.delay(
-            println(
-              s"[CLIENT] Connecting to address: ${address
-                  .toString()}, Buffer length: $length and LinuxSocket fd: ${linuxSocket.fd()}"
+
+          _ <- F.whenA(debugClient)(
+            F.delay(
+              println(
+                s"[CLIENT] Connecting to address: ${address
+                    .toString()}, Buffer length: $length and LinuxSocket fd: ${linuxSocket.fd()}"
+              )
             )
           )
 
-          _ <- F.delay(println("[CLIENT] Connecting..."))
+          _ <- F.whenA(debugClient)(F.delay(println("[CLIENT] Connecting...")))
           _ <- ring
             .call(
               op = IORING_OP_CONNECT,
@@ -82,7 +89,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
     socket <- UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
 
-    _ <- Resource.eval(F.delay(println("[CLIENT] Connexion established!")))
+    _ <- Resource.eval(F.whenA(debugClient)(F.delay(println("[CLIENT] Connexion established!"))))
 
   } yield socket
 
@@ -106,13 +113,17 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       for {
         resolvedAddress <- Resource.eval(address.fold(IpAddress.loopback)(_.resolve))
 
-        _ <- Resource.eval(F.delay(println(s"[SERVER] Resolved Address: $resolvedAddress")))
+        _ <- Resource.eval(
+          F.whenA(debugServer)(F.delay(println(s"[SERVER] Resolved Address: $resolvedAddress")))
+        )
 
         isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
 
         linuxSocket <- openSocket(ring, isIpv6)
 
-        _ <- Resource.eval(F.delay(println(s"[SERVER] LinusSocketFd: ${linuxSocket.fd()}")))
+        _ <- Resource.eval(
+          F.whenA(debugServer)(F.delay(println(s"[SERVER] LinusSocketFd: ${linuxSocket.fd()}")))
+        )
 
         _ <- Resource.eval(
           F.delay(
@@ -126,7 +137,8 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
         localAddress <- Resource
           .eval(F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress())))
 
-        _ <- Resource.eval(F.delay(println(s"[SERVER] Local Address: $localAddress")))
+        _ <- Resource
+          .eval(F.whenA(debugServer)(F.delay(println(s"[SERVER] Local Address: $localAddress"))))
 
         sockets = Stream
           .resource(createBufferAux(isIpv6))
@@ -144,7 +156,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                     // Accept a connection, write the remote address on the buf and get the clientFd
                     val accept: Resource[F, Int] = for {
                       // _ <- Resource.eval(F.delay(bufLength.writeInt(buf.capacity())))
-                      _ <- Resource.eval(F.delay(println("[SERVER] accepting connection...")))
+                      _ <- Resource.eval(
+                        F.whenA(debugServer)(F.delay(println("[SERVER] accepting connection...")))
+                      )
                       clientFd <- ring
                         .bracket(
                           op = IORING_OP_ACCEPT,
@@ -152,14 +166,16 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                           bufferAddress = buf.memoryAddress(),
                           offset = bufLength.memoryAddress()
                         )(closeSocket(ring, _))
-                        .mapK {
-                          new cats.~>[IO, IO] {
-                            def apply[A](ioa: IO[A]) = ioa.debug()
-                          }
-                        }
+                        // .mapK {
+                        //   new cats.~>[IO, IO] {
+                        //     def apply[A](ioa: IO[A]) = ioa.debug()
+                        //   }
+                        // }
                         .mapK(LiftIO.liftK)
 
-                      _ <- Resource.eval(F.delay(println("[SERVER] connexion established!")))
+                      _ <- Resource.eval(
+                        F.whenA(debugServer)(F.delay(println("[SERVER] connexion established!")))
+                      )
 
                     } yield clientFd
 
@@ -173,7 +189,11 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                       clientFd <- accept
                       remoteAddress <- Resource.eval(convert)
                       _ <- Resource
-                        .eval(F.delay(s"[SERVER] connected to $remoteAddress with fd: $clientFd"))
+                        .eval(
+                          F.whenA(debugServer)(
+                            F.delay(s"[SERVER] connected to $remoteAddress with fd: $clientFd")
+                          )
+                        )
                       socket <- UringSocket(
                         ring,
                         UringLinuxSocket(clientFd),

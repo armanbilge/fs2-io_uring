@@ -49,24 +49,36 @@ private[net] final class UringSocket[F[_]: LiftIO](
 )(implicit F: Async[F])
     extends Socket[F] {
 
-  private[this] def recv(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
-    ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
+  private val debug = false
+  private val debugRead = debug && true
+  private val debugWrite = debug && true
+
+  private[this] def recv(bufferAddress: Long, maxBytes: Int, flags: Int): F[Int] =
+    ring.call(IORING_OP_RECV, flags, 0, sockfd, bufferAddress, maxBytes, 0).to
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
       for {
         _ <- F.delay(buffer.clear()) // Clear the buffer before writing
 
-        _ <- F.delay(println(s"[SOCKET][READ] writing the received message in the buffer..."))
-        readed <- recv(buffer.memoryAddress(), 0, maxBytes, 0)
+        _ <- F.whenA(debugRead)(
+          F.delay(println(s"[SOCKET][READ] writing the received message in the buffer..."))
+        )
 
-        _ <- F.delay(println(s"[SOCKET][READ] transfering the message from the buffer to a new array..."))
+        readed <- recv(buffer.memoryAddress(), maxBytes, 0)
+
+        _ <- F.whenA(debugRead)(
+          F.delay(
+            println(s"[SOCKET][READ] transfering the message from the buffer to a new array...")
+          )
+        )
+
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
           buffer.getBytes(0, arr)
           arr
         }
-        _ <- F.delay(println(s"[SOCKET][READ] Done reading!"))
+        _ <- F.whenA(debugRead)(F.delay(println(s"[SOCKET][READ] Done reading!")))
 
       } yield Option.when(readed > 0)(Chunk.array(bytes))
     }
@@ -78,7 +90,6 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
         readed <- recv(
           buffer.memoryAddress(),
-          0,
           numBytes,
           0 // TODO: Replace with MSG_WAITALL
         )
@@ -104,28 +115,33 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def localAddress: F[SocketAddress[IpAddress]] =
     F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
 
-  private[this] def send(bufferAddress: Long, pos: Int, maxBytes: Int, flags: Int): F[Int] =
-    ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress + pos, maxBytes - pos, 0).to
+  private[this] def send(bufferAddress: Long, maxBytes: Int, flags: Int): F[Int] =
+    ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress, maxBytes, 0).to
 
   def write(bytes: Chunk[Byte]): F[Unit] =
     writeMutex.lock
       .surround {
         for {
-          _ <- F.delay(println(s"[SOCKET][WRITE] transfering to the buffer the bytes..."))
+          _ <- F.whenA(debugWrite)(
+            F.delay(println(s"[SOCKET][WRITE] transfering to the buffer the bytes..."))
+          )
+
           _ <- F.delay {
             buffer.clear()
             buffer.writeBytes(bytes.toArray)
           }
 
-          _ <- F.delay(println(s"[SOCKET][WRITE] sending the bytes in the buffer..."))
-          _ <- send(
-            buffer.memoryAddress(),
-            0,
-            bytes.size,
-            0 // TODO Replace with MSG_NOSIGNAL
+          _ <- F.whenA(debugWrite)(
+            F.delay(println(s"[SOCKET][WRITE] sending the bytes in the buffer..."))
           )
 
-          _ <- F.delay(println(s"[SOCKET][WRITE] message sent!"))
+          _ <- send(
+            buffer.memoryAddress(),
+            bytes.size,
+            0 // TODO: Replace with MSG_WAITALL
+          )
+
+          _ <- F.whenA(debugWrite)(F.delay(println(s"[SOCKET][WRITE] message sent!")))
 
         } yield ()
       }

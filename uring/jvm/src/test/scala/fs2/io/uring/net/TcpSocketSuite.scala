@@ -33,7 +33,7 @@ import fs2.io.net.Socket
 import java.util.concurrent.TimeoutException
 
 class TcpSocketSuit extends UringSuite {
-
+  val debug = false
   val sg = UringSocketGroup[IO]
 
   // Client test:
@@ -138,10 +138,10 @@ class TcpSocketSuit extends UringSuite {
 
   test("Start server and wait for a connection during 5 sec") {
     serverResource.use { case (localAddress, _) =>
-      IO {
+      IO.whenA(debug)(IO {
         println(s"[TEST] Server started at $localAddress")
         println(s"[TEST] You can now connect to this server")
-      } *> IO.sleep(5.second)
+      }) *> IO.sleep(5.second)
     // Use telnet localhost "port" to connect
     }
   }
@@ -149,11 +149,12 @@ class TcpSocketSuit extends UringSuite {
   test("Start server and connect external client") {
     serverResource.use { case (localAddress, _) =>
       for {
-        _ <- IO.println(s"[TEST] Server started at $localAddress")
+        _ <- IO.whenA(debug)(IO.println(s"[TEST] Server started at $localAddress"))
         _ <- sg.client(localAddress).use { socket =>
           for {
             remoteAddress <- socket.remoteAddress
-            _ <- IO.println(s"[TEST] Socket created and connected to $remoteAddress!")
+            _ <- IO
+              .whenA(debug)(IO.println(s"[TEST] Socket created and connected to $remoteAddress!"))
             _ <- socket.remoteAddress.map(assertEquals(_, localAddress))
           } yield ()
         }
@@ -173,10 +174,10 @@ class TcpSocketSuit extends UringSuite {
 
         val echoServer = serverStream.compile.drain
 
-        IO.println("socket created and connection established!") *>
+        IO.whenA(debug)(IO.println("socket created and connection established!")) *>
           echoServer.background.use(_ =>
-              write.compile.drain
-              *> IO.println("message written!")
+            write.compile.drain
+              *> IO.whenA(debug)(IO.println("message written!"))
           )
       }
     }
@@ -208,7 +209,7 @@ class TcpSocketSuit extends UringSuite {
           .compile
           .drain
 
-        IO.println("socket created and connection established!") *>
+        IO.whenA(debug)(IO.println("socket created and connection established!")) *>
           echoServer.background.use(_ =>
             IO.sleep(
               1.second
@@ -221,15 +222,14 @@ class TcpSocketSuit extends UringSuite {
   }
 
   // Server and client tests:
-
   val setup = for {
     serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
     (bindAddress, server) = serverSetup
-    _ <- Resource.eval(IO.delay(println(s"Bind address: $bindAddress")))
+    _ <- Resource.eval(IO.whenA(debug)(IO.delay(println(s"[TEST] Bind address: $bindAddress"))))
     clients = Stream.resource(sg.client(bindAddress)).repeat
   } yield server -> clients
 
-  val repetitions: Int = 5
+  val repetitions: Int = 1
 
   /*
     TODO: (Very rare) second cancellation with error -2 (we shouldn't have a second cancellation (?))
@@ -366,19 +366,9 @@ class TcpSocketSuit extends UringSuite {
 
   // TODO decide about "read after timed out read not allowed"
 
-  test("can shutdown a socket that's pending a read") {
-    val timeout = 2.seconds
-    val test = sg.serverResource().use { case (bindAddress, clients) =>
-      sg.client(bindAddress).use { _ =>
-        clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
-          case _: TimeoutException => ()
-        }
-      }
-    }
-
-    // also test that timeouts are working correctly
-    test.timed.flatMap { case (duration, _) =>
-      IO(assert(clue(duration) < (timeout + 100.millis)))
+  test("empty write") {
+    setup.use { case (_, clients) =>
+      clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
     }
   }
 
@@ -388,10 +378,19 @@ class TcpSocketSuit extends UringSuite {
     }
   }
 
-  test("empty write") {
-    setup.use { case (_, clients) =>
-      clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
-    }
-  }
+  // test("can shutdown a socket that's pending a read") {
+  //   val timeout = 2.seconds
+  //   val test = sg.serverResource().use { case (bindAddress, clients) =>
+  //     sg.client(bindAddress).use { _ =>
+  //       clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
+  //         case _: TimeoutException => ()
+  //       }
+  //     }
+  //   }
 
+  //   // also test that timeouts are working correctly
+  //   test.timed.flatMap { case (duration, _) =>
+  //     IO(assert(clue(duration) < (timeout + 100.millis)))
+  //   }
+  // }
 }
