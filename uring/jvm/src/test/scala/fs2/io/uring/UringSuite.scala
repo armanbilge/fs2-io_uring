@@ -17,7 +17,7 @@
 package fs2.io.uring
 
 import munit.CatsEffectSuite
-import cats.effect.unsafe.IORuntime
+// import cats.effect.unsafe.IORuntime
 import fs2.io.uring.unsafe.UringSystem
 import cats.effect.unsafe.IORuntimeBuilder
 import scala.concurrent.duration._
