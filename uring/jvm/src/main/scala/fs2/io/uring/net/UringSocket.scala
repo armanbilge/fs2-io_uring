@@ -91,7 +91,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
         readed <- recv(
           buffer.memoryAddress(),
           numBytes,
-          0 // TODO: Replace with MSG_WAITALL
+          0
         )
 
         bytes <- F.delay {
@@ -138,7 +138,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
           _ <- send(
             buffer.memoryAddress(),
             bytes.size,
-            0 // TODO: Replace with MSG_WAITALL
+            0
           )
 
           _ <- F.whenA(debugWrite)(F.delay(println(s"[SOCKET][WRITE] message sent!")))
