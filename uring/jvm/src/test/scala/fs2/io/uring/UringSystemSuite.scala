@@ -23,12 +23,14 @@ import fs2.io.uring.UringSuite
 
 import fs2.io.uring.unsafe.util.OP._
 
-class UringSystemSuitd extends UringSuite {
+class UringSystemSuite extends UringSuite {
+
+  val debug = false
 
   test("Create a ring") {
     val test = for {
       _ <- Uring.get[IO]
-      _ <- IO.println("[TEST] We got the ring!")
+      _ <- IO.whenA(debug)(IO.println("[TEST] We got the ring!"))
     } yield ()
 
     test.assertEquals(())
@@ -37,7 +39,7 @@ class UringSystemSuitd extends UringSuite {
   test("submission") {
     val test = for {
       ring <- Uring.get[IO]
-      _ <- IO.println("[TEST] We got the ring!")
+      _ <- IO.whenA(debug)(IO.println("[TEST] We got the ring!"))
       res <- {
         val op: Byte = IORING_OP_NOP
         val flags: Int = 0
@@ -76,8 +78,8 @@ class UringSystemSuitd extends UringSuite {
 
     val list = for {
       results <- test 
-      _ <- IO.println(results)
-      _ <- IO.println(results.size)
+      _ <- IO.whenA(debug)(IO.println(results))
+      _ <- IO.whenA(debug)(IO.println(results.size))
     } yield results
 
 
@@ -104,8 +106,8 @@ class UringSystemSuitd extends UringSuite {
     val list = for {
       listOfList <- test
       listFlatten <- IO(listOfList.flatten)
-      _ <- IO.println(listFlatten)
-      _ <- IO.println(listFlatten.size)
+      _ <- IO.whenA(debug)(IO.println(listFlatten))
+      _ <- IO.whenA(debug)(IO.println(listFlatten.size))
     } yield listFlatten
 
     list.map(results => assert(results.forall(_ >= 0)))
