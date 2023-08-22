@@ -22,7 +22,6 @@ import fs2.io.uring.unsafe.UringSystem
 import cats.effect.unsafe.IORuntimeBuilder
 import scala.concurrent.duration._
 
-
 abstract class UringSuite extends CatsEffectSuite {
 
   // override lazy val munitIORuntime = {

@@ -77,11 +77,10 @@ class UringSystemSuite extends UringSuite {
     val test: IO[List[Int]] = calls.parSequence
 
     val list = for {
-      results <- test 
+      results <- test
       _ <- IO.whenA(debug)(IO.println(results))
       _ <- IO.whenA(debug)(IO.println(results.size))
     } yield results
-
 
     list.map(results => assert(results.forall(_ >= 0)))
   }
