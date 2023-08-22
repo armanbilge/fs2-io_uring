@@ -218,7 +218,7 @@ object UringSystem extends PollingSystem {
     private[this] val ids = new BitSet(Short.MaxValue)
 
     private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(10)
+      val newId = ids.nextClearBit(10) // 0-9 are reserved for certain operations
       ids.set(newId)
       newId.toShort
     }
@@ -298,7 +298,7 @@ object UringSystem extends PollingSystem {
       if (debugPoll)
         println(s"[POLL ${Thread.currentThread().getName()}] Polling with nanos = $nanos")
 
-      // Check if we are listening to the FD. If not, start listening
+      // Check if it is listening to the FD. If not, start listening
       if (!listenFd) {
         if (debugPoll)
           println(s"[POLL ${Thread.currentThread().getName()}] We are not listening to the FD!")
@@ -314,7 +314,7 @@ object UringSystem extends PollingSystem {
           NativeAccess.POLLIN.toShort
         )
         pendingSubmissions = true
-        listenFd = true // Set the flag indicating we're now listening
+        listenFd = true // Set the flag indicating it is now listening
       }
 
       // Check for cancel operations
