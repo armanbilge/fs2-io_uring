@@ -49,7 +49,7 @@ class TcpSocketSuite extends UringSuite {
           .head
 
       writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 200 OK")
+        .assertEquals("HTTP/1.1 301 Moved Permanently")
     }
   }
 
