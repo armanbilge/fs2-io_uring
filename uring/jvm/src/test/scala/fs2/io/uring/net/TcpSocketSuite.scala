@@ -30,9 +30,8 @@ import cats.effect.kernel.Resource
 import scala.concurrent.duration._
 import java.io.IOException
 import fs2.io.net.Socket
-import java.util.concurrent.TimeoutException
 
-class TcpSocketSuit extends UringSuite {
+class TcpSocketSuite extends UringSuite {
   val debug = false
   val sg = UringSocketGroup[IO]
 
@@ -377,20 +376,4 @@ class TcpSocketSuit extends UringSuite {
       clients.compile.drain.timeoutTo(100.millis, IO.unit)
     }
   }
-
-  // test("can shutdown a socket that's pending a read") {
-  //   val timeout = 2.seconds
-  //   val test = sg.serverResource().use { case (bindAddress, clients) =>
-  //     sg.client(bindAddress).use { _ =>
-  //       clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
-  //         case _: TimeoutException => ()
-  //       }
-  //     }
-  //   }
-
-  //   // also test that timeouts are working correctly
-  //   test.timed.flatMap { case (duration, _) =>
-  //     IO(assert(clue(duration) < (timeout + 100.millis)))
-  //   }
-  // }
 }
