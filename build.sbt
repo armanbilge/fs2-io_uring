@@ -27,7 +27,7 @@ ThisBuild / githubWorkflowBuildPreamble ++= {
 
 ThisBuild / githubWorkflowBuild +=
   WorkflowStep.Run(
-    List("clang-format --dry-run --Werror uring/src/main/resources/scala-native/*.c"),
+    List("clang-format --dry-run --Werror uring/native/src/main/resources/scala-native/*.c"),
     name = Some("Check formatting of C sources")
   )
 
