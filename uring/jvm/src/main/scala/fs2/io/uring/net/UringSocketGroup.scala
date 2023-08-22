@@ -149,13 +149,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                 bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
                   Stream.resource {
 
-                    bufLength.writeInt(
-                      buf.capacity()
-                    ) // TODO: Moved to accept, wrapped in Resource[F, A] but introduces errors in tests (echo requests), probably due to the interrupt
-
                     // Accept a connection, write the remote address on the buf and get the clientFd
                     val accept: Resource[F, Int] = for {
-                      // _ <- Resource.eval(F.delay(bufLength.writeInt(buf.capacity())))
+                      _ <- Resource.eval(F.delay(bufLength.writeInt(buf.capacity())))
                       _ <- Resource.eval(
                         F.whenA(debugServer)(F.delay(println("[SERVER] accepting connection...")))
                       )
@@ -166,11 +162,11 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                           bufferAddress = buf.memoryAddress(),
                           offset = bufLength.memoryAddress()
                         )(closeSocket(ring, _))
-                        // .mapK {
-                        //   new cats.~>[IO, IO] {
-                        //     def apply[A](ioa: IO[A]) = ioa.debug()
-                        //   }
-                        // }
+                        .mapK {
+                          new cats.~>[IO, IO] {
+                            def apply[A](ioa: IO[A]) = if (debugServer) ioa.debug() else ioa
+                          }
+                        }
                         .mapK(LiftIO.liftK)
 
                       _ <- Resource.eval(
@@ -219,12 +215,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       linuxSocket => closeSocket(ring, linuxSocket.fd()).to
     )
 
-  /*
-    The bind, listen and getLocalAddress functions are in the LinuxSocket class.
-    If we open a socket using the ring, we only get a fd => Problem: how to bind and listen ?
-      - io_uring doesn't have a bind, listen or getLocalAddress operators.
-      - Is it possible to create a LinuxSocket using the fd created by the ring ? This would solve the problem.
-   */
   // private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
   //   val domain = if (ipv6) AF_INET6 else AF_INET
   //   ring
