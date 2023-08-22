@@ -95,7 +95,7 @@ jobs:
         run: sbt 'project ${{ matrix.project }}' '++ ${{ matrix.scala }}' doc
 
       - name: Check formatting of C sources
-        run: clang-format --dry-run --Werror uring/src/main/resources/scala-native/*.c
+        run: clang-format --dry-run --Werror uring/native/src/main/resources/scala-native/*.c
 
       - name: Make target directories
         if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
