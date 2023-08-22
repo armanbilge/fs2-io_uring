@@ -41,7 +41,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
     linuxSocket: UringLinuxSocket,
     sockfd: Int,
-    remoteAddress: SocketAddress[IpAddress],
+    _remoteAddress: SocketAddress[IpAddress],
     buffer: ByteBuf,
     defaultReadSize: Int,
     readMutex: Mutex[F],
@@ -110,7 +110,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
   def isOpen: F[Boolean] = F.pure(true)
 
-  def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(remoteAddress)
+  def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(_remoteAddress)
 
   def localAddress: F[SocketAddress[IpAddress]] =
     F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))

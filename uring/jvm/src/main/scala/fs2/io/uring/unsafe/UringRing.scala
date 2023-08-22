@@ -568,8 +568,8 @@ final class UringMsgHdr {
     )
 }
 
-final class UringMsgHdrMemoryArray(capacity: Int) {
-  private[this] val msgHdrMemoryArray: MsgHdrMemoryArray = new MsgHdrMemoryArray(capacity)
+final class UringMsgHdrMemoryArray(_capacity: Int) {
+  private[this] val msgHdrMemoryArray: MsgHdrMemoryArray = new MsgHdrMemoryArray(_capacity)
 
   def clear(): Unit = msgHdrMemoryArray.clear()
 
