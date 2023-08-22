@@ -22,7 +22,6 @@ import cats.syntax.parallel._
 import fs2.io.uring.UringSuite
 
 import fs2.io.uring.unsafe.util.OP._
-import scala.io.StdIn
 
 class UringSystemSuitd extends UringSuite {
 
