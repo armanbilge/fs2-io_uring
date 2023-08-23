@@ -55,7 +55,7 @@ class TcpSocketSuite extends UringSuite {
             .head
 
       writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 301 Moved Permanently")
+        .assertEquals("HTTP/1.1 200 OK")
     }
   }
 
@@ -308,6 +308,43 @@ class TcpSocketSuite extends UringSuite {
       .assertEquals(sizes)
 
     test.replicateA(repetitions).void
+  }
+
+  test("readN yields chunks of the requested size with remote disconnection") {
+    val message = Chunk.array("123456789012345678901234567890".getBytes)
+    val sizes = Vector(1, 2, 3, 4, 3, 2, 1)
+    val subsetSize: Long = 15
+
+    val test: IO[Unit] = Stream
+      .resource(setup)
+      .flatMap { case (server, clients) =>
+        val junkServer = server.map { socket =>
+          Stream
+            .chunk(message)
+            .through(socket.writes)
+            .take(subsetSize)
+        }.parJoinUnbounded
+
+        val client =
+          clients
+            .take(1)
+            .flatMap { socket =>
+              Stream
+                .emits(sizes)
+                .evalMap(socket.readN(_))
+                .map(_.size)
+            }
+            .take(subsetSize)
+
+        client.concurrently(junkServer)
+      }
+      .compile
+      .toVector
+      .assertEquals(
+        sizes.takeWhile(_ <= subsetSize)
+      )
+
+    test.replicateA(100).void
   }
 
   test("write - concurrent calls do not cause a WritePendingException") {
