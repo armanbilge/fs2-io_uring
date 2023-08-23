@@ -12,10 +12,10 @@ ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 
 ThisBuild / githubWorkflowBuild ~= { steps =>
   steps.flatMap {
-    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _) =>
+    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _, _, _) =>
       List(WorkflowStep.Sbt(List("compile"), name = Some("Compile")))
-    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _) => Nil
-    case step                                                 => List(step)
+    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _, _, _) => Nil
+    case step                                                       => List(step)
   }
 }
 

@@ -49,6 +49,7 @@ object UringRuntime {
       installGlobal {
         UringRuntime()
       }
+      ()
     }
 
     _global
