@@ -32,13 +32,13 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
 
   private[this] val noopRelease: Int => F[Unit] = _ => F.unit
 
-  def call(prep: Ptr[io_uring_sqe] => Unit): F[Int] =
-    exec(prep)(noopRelease)
+  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = _ => false): F[Int] =
+    exec(prep, mask)(noopRelease)
 
-  def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): Resource[F, Int] =
-    Resource.makeFull[F, Int](poll => poll(exec(prep)(release(_))))(release(_))
+  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = _ => false)(release: Int => F[Unit]): Resource[F, Int] =
+    Resource.makeFull[F, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
-  private def exec(prep: Ptr[io_uring_sqe] => Unit)(release: Int => F[Unit]): F[Int] =
+  private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => F[Unit]): F[Int] =
     F.cont {
       new Cont[F, Int, Int] {
         def apply[G[_]](implicit
@@ -59,13 +59,13 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
                     G.unit,
                     // if cannot cancel, fallback to get
                     get.flatMap { rtn =>
-                      if (rtn < 0) G.raiseError(IOExceptionHelper(-rtn))
+                      if (rtn < 0 && !mask(rtn)) G.raiseError(IOExceptionHelper(-rtn))
                       else lift(release(rtn))
                     }
                   )
                 )
               }
-              .flatTap(e => G.raiseWhen(e < 0)(IOExceptionHelper(-e)))
+              .flatTap(e => G.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
           }
         }
       }

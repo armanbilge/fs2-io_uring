@@ -34,6 +34,7 @@ import fs2.io.uring.unsafe.util._
 import java.io.IOException
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.sys.socket._
+import scala.scalanative.posix.errno._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
@@ -69,9 +70,9 @@ private[net] final class UringSocket[F[_]](
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0)).void
+  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0), _ == ENOTCONN).void
 
-  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1)).void
+  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1), _ == ENOTCONN).void
 
   def isOpen: F[Boolean] = F.pure(true)
 
