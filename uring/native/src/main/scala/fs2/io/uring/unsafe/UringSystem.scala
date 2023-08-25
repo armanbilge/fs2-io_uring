@@ -78,10 +78,14 @@ object UringSystem extends PollingSystem {
     def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
       exec(prep, mask)(noopRelease)
 
-    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => IO[Unit]): Resource[IO, Int] =
+    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): Resource[IO, Int] =
       Resource.makeFull[IO, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
-    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => IO[Unit]): IO[Int] =
+    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): IO[Int] =
       IO.cont {
         new Cont[IO, Int, Int] {
           def apply[F[_]](implicit
