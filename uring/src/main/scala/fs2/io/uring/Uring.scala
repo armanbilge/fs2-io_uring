@@ -31,11 +31,12 @@ import scala.scalanative.unsafe.Ptr
 private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
 
   private[this] val noopRelease: Int => F[Unit] = _ => F.unit
+  private[this] val noopMask: Int => Boolean = _ => false
 
-  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = _ => false): F[Int] =
+  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): F[Int] =
     exec(prep, mask)(noopRelease)
 
-  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = _ => false)(release: Int => F[Unit]): Resource[F, Int] =
+  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(release: Int => F[Unit]): Resource[F, Int] =
     Resource.makeFull[F, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
   private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => F[Unit]): F[Int] =
