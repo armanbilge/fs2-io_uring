@@ -36,6 +36,7 @@ import fs2.io.uring.unsafe.util.OP._
 
 import io.netty.buffer.ByteBuf
 import io.netty.incubator.channel.uring.UringLinuxSocket
+import fs2.io.uring.unsafe.util.errno._
 
 private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
@@ -104,9 +105,11 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 0).void.to
+  def endOfInput: F[Unit] =
+    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 0, mask = e => e == ENOTCONN).void.to
 
-  def endOfOutput: F[Unit] = ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 1).void.to
+  def endOfOutput: F[Unit] =
+    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 1, mask = e => e == ENOTCONN).void.to
 
   def isOpen: F[Boolean] = F.pure(true)
 
