@@ -75,13 +75,13 @@ object UringSystem extends PollingSystem {
       with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
-    def call(prep: Ptr[io_uring_sqe] => Unit): IO[Int] =
-      exec(prep)(noopRelease)
+    def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
+      exec(prep, mask)(noopRelease)
 
-    def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): Resource[IO, Int] =
-      Resource.makeFull[IO, Int](poll => poll(exec(prep)(release(_))))(release(_))
+    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => IO[Unit]): Resource[IO, Int] =
+      Resource.makeFull[IO, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
-    private def exec(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): IO[Int] =
+    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => IO[Unit]): IO[Int] =
       IO.cont {
         new Cont[IO, Int, Int] {
           def apply[F[_]](implicit
@@ -104,13 +104,13 @@ object UringSystem extends PollingSystem {
                       F.unit,
                       // if cannot cancel, fallback to get
                       get.flatMap { rtn =>
-                        if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
+                        if (rtn < 0 && !mask(rtn)) F.raiseError(IOExceptionHelper(-rtn))
                         else lift(release(rtn))
                       }
                     )
                   )
                 }
-                .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
             }
           }
         }
