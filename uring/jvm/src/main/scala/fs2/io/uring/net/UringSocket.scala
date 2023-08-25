@@ -106,10 +106,10 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
   def endOfInput: F[Unit] =
-    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 0, mask = e => e == ENOTCONN).void.to
+    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 0, mask = _ == ENOTCONN).void.to
 
   def endOfOutput: F[Unit] =
-    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 1, mask = e => e == ENOTCONN).void.to
+    ring.call(op = IORING_OP_SHUTDOWN, fd = sockfd, length = 1, mask = _ == ENOTCONN).void.to
 
   def isOpen: F[Boolean] = F.pure(true)
 
