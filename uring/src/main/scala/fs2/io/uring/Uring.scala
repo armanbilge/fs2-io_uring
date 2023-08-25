@@ -36,10 +36,14 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
   def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): F[Int] =
     exec(prep, mask)(noopRelease)
 
-  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(release: Int => F[Unit]): Resource[F, Int] =
+  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(
+      release: Int => F[Unit]
+  ): Resource[F, Int] =
     Resource.makeFull[F, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
-  private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(release: Int => F[Unit]): F[Int] =
+  private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+      release: Int => F[Unit]
+  ): F[Int] =
     F.cont {
       new Cont[F, Int, Int] {
         def apply[G[_]](implicit
