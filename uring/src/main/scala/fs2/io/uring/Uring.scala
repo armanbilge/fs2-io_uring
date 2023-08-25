@@ -64,13 +64,13 @@ private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F:
                     G.unit,
                     // if cannot cancel, fallback to get
                     get.flatMap { rtn =>
-                      if (rtn < 0 && !mask(rtn)) G.raiseError(IOExceptionHelper(-rtn))
+                      if (rtn < 0 && !mask(-rtn)) G.raiseError(IOExceptionHelper(-rtn))
                       else lift(release(rtn))
                     }
                   )
                 )
               }
-              .flatTap(e => G.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
+              .flatTap(e => G.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
           }
         }
       }
