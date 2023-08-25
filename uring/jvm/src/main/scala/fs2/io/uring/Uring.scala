@@ -30,7 +30,8 @@ abstract class Uring private[uring] {
       fd: Int = 0,
       bufferAddress: Long = 0,
       length: Int = 0,
-      offset: Long = 0
+      offset: Long = 0,
+      mask: Int => Boolean = (_ => false)
   ): IO[Int]
 
   def bracket(
@@ -40,7 +41,8 @@ abstract class Uring private[uring] {
       fd: Int = 0,
       bufferAddress: Long = 0,
       length: Int = 0,
-      offset: Long = 0
+      offset: Long = 0,
+      mask: Int => Boolean = (_ => false)
   )(release: Int => IO[Unit]): Resource[IO, Int]
 }
 

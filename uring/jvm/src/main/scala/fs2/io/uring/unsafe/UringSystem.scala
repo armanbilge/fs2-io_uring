@@ -53,9 +53,9 @@ object UringSystem extends PollingSystem {
 
   private val debug = true
   private val debugPoll = debug && false
-  private val debugCancel = debug && true
+  private val debugCancel = debug && false
   private val debugInterrupt = debug && false
-  private val debugSubmissionQueue = debug && true
+  private val debugSubmissionQueue = debug && false
   private val debugHandleCompletionQueue = debug && true
   type Api = Uring
 
@@ -98,9 +98,10 @@ object UringSystem extends PollingSystem {
         fd: Int,
         bufferAddress: Long,
         length: Int,
-        offset: Long
+        offset: Long,
+        mask: Int => Boolean
     ): IO[Int] =
-      exec(op, flags, rwFlags, fd, bufferAddress, length, offset)(noopRelease)
+      exec(op, flags, rwFlags, fd, bufferAddress, length, offset, mask)(noopRelease)
 
     def bracket(
         op: Byte,
@@ -109,10 +110,11 @@ object UringSystem extends PollingSystem {
         fd: Int,
         bufferAddress: Long,
         length: Int,
-        offset: Long
+        offset: Long,
+        mask: Int => Boolean
     )(release: Int => IO[Unit]): Resource[IO, Int] =
       Resource.makeFull[IO, Int](poll =>
-        poll(exec(op, flags, rwFlags, fd, bufferAddress, length, offset)(release(_)))
+        poll(exec(op, flags, rwFlags, fd, bufferAddress, length, offset, mask)(release(_)))
       )(release)
 
     private def exec(
@@ -122,7 +124,8 @@ object UringSystem extends PollingSystem {
         fd: Int,
         bufferAddress: Long,
         length: Int,
-        offset: Long
+        offset: Long,
+        mask: Int => Boolean
     )(release: Int => IO[Unit]): IO[Int] = {
 
       def cancel(
@@ -179,13 +182,13 @@ object UringSystem extends PollingSystem {
                       F.unit,
                       // if cannot cancel, fallback to get
                       get.flatMap { rtn =>
-                        if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
+                        if (rtn < 0 && !mask(rtn)) F.raiseError(IOExceptionHelper(-rtn))
                         else lift(release(rtn))
                       }
                     )
                   )
                 }
-                .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
             }
 
           }
@@ -372,8 +375,7 @@ object UringSystem extends PollingSystem {
         def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
           if (
             res < 0 &&
-            (op != 14 && res == -2) && // Temporarly, ignore error due to race condition on cancellation
-            (op == 34 && res != -107) // Ignore error when shutdown a disconnected socket
+            (op != 14 && res == -2) // Temporarly, ignore error due to race condition on cancellation
           )
             cb(
               Left(
@@ -383,12 +385,10 @@ object UringSystem extends PollingSystem {
                 )
               )
             )
-          else {
-            if (op == 34 && res == -107) cb(Right(0))
-            else cb(Right(res))
-          }
+          else
+            cb(Right(res))
 
-        if (debugHandleCompletionQueue && data > 9)
+        if (debugHandleCompletionQueue && data > 9 && res == -107)
           println(
             s"[HANDLE CQCB ${ring.fd()}]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
           )
