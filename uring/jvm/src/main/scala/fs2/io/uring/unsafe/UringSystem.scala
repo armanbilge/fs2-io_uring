@@ -51,10 +51,10 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false
-  private val debugPoll = debug && true
+  private val debug = true
+  private val debugPoll = debug && false
   private val debugCancel = debug && true
-  private val debugInterrupt = debug && true
+  private val debugInterrupt = debug && false
   private val debugSubmissionQueue = debug && true
   private val debugHandleCompletionQueue = debug && true
   type Api = Uring
@@ -260,7 +260,7 @@ object UringSystem extends PollingSystem {
         offset: Long,
         data: Short
     ): Boolean = {
-      if (debugSubmissionQueue)
+      if (debugSubmissionQueue && data > 9)
         println(
           s"[SQ ${ring.fd()}] Enqueuing a new Sqe with: OP: $op, flags: $flags, rwFlags: $rwFlags, fd: $fd, bufferAddress: $bufferAddress, length: $length, offset: $offset, extraData: $data"
         )
@@ -370,7 +370,11 @@ object UringSystem extends PollingSystem {
     private[this] val completionQueueCallback = new UringCompletionQueueCallback {
       override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
         def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
-          if (res < 0 && op != 14) // Temporarly, ignore error due to race condition on cancellation
+          if (
+            res < 0 &&
+            (op != 14 && res == -2) && // Temporarly, ignore error due to race condition on cancellation
+            (op == 34 && res != -107) // Ignore error when shutdown a disconnected socket
+          )
             cb(
               Left(
                 new IOException(
@@ -379,9 +383,12 @@ object UringSystem extends PollingSystem {
                 )
               )
             )
-          else cb(Right(res))
+          else {
+            if (op == 34 && res == -107) cb(Right(0))
+            else cb(Right(res))
+          }
 
-        if (debugHandleCompletionQueue)
+        if (debugHandleCompletionQueue && data > 9)
           println(
             s"[HANDLE CQCB ${ring.fd()}]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
           )
