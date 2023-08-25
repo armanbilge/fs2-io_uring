@@ -22,6 +22,7 @@ import cats.effect.kernel.Resource
 import cats.syntax.all._
 
 abstract class Uring private[uring] {
+  private[this] val noopMask: Int => Boolean = _ => false
 
   def call(
       op: Byte,
@@ -31,7 +32,7 @@ abstract class Uring private[uring] {
       bufferAddress: Long = 0,
       length: Int = 0,
       offset: Long = 0,
-      mask: Int => Boolean = _ => false
+      mask: Int => Boolean = noopMask
   ): IO[Int]
 
   def bracket(
@@ -42,7 +43,7 @@ abstract class Uring private[uring] {
       bufferAddress: Long = 0,
       length: Int = 0,
       offset: Long = 0,
-      mask: Int => Boolean = _ => false
+      mask: Int => Boolean = noopMask
   )(release: Int => IO[Unit]): Resource[IO, Int]
 }
 

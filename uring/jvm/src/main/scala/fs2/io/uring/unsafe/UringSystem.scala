@@ -51,7 +51,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = true
+  private val debug = false
   private val debugPoll = debug && false
   private val debugCancel = debug && false
   private val debugInterrupt = debug && false
@@ -190,13 +190,10 @@ object UringSystem extends PollingSystem {
                 }
                 .flatTap(e => F.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
             }
-
           }
         }
       }
-
     }
-
   }
 
   final class Poller private[UringSystem] (ring: UringRing) {
@@ -388,7 +385,7 @@ object UringSystem extends PollingSystem {
           else
             cb(Right(res))
 
-        if (debugHandleCompletionQueue && data > 9 && res == -107)
+        if (debugHandleCompletionQueue && data > 9)
           println(
             s"[HANDLE CQCB ${ring.fd()}]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
           )
