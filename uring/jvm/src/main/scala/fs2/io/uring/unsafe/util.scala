@@ -83,4 +83,8 @@ private[uring] object util {
     val IORING_OP_LAST: Byte = 49
   }
 
+  object errno {
+    val ENOTCONN = -107
+  }
+
 }
