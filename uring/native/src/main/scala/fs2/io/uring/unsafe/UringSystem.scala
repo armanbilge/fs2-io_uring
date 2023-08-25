@@ -108,13 +108,13 @@ object UringSystem extends PollingSystem {
                       F.unit,
                       // if cannot cancel, fallback to get
                       get.flatMap { rtn =>
-                        if (rtn < 0 && !mask(rtn)) F.raiseError(IOExceptionHelper(-rtn))
+                        if (rtn < 0 && !mask(-rtn)) F.raiseError(IOExceptionHelper(-rtn))
                         else lift(release(rtn))
                       }
                     )
                   )
                 }
-                .flatTap(e => F.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
             }
           }
         }
