@@ -50,7 +50,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = true
+  private val debug = false
   private val debugPoll = debug && false
   private val debugCancel = debug && false
   private val debugInterrupt = debug && false
@@ -293,37 +293,10 @@ object UringSystem extends PollingSystem {
         println(s"[POLL ${Thread.currentThread().getName()}] Polling with nanos = $nanos")
 
       // Check if it is listening to the FD. If not, start listening
-      if (!listenFd) {
-        if (debugPoll)
-          println(s"[POLL ${Thread.currentThread().getName()}] We are not listening to the FD!")
-
-        enqueueSqe(
-          IORING_OP_POLL_ADD,
-          0,
-          NativeAccess.POLLIN,
-          readEnd.intValue(),
-          0,
-          0,
-          0,
-          NativeAccess.POLLIN.toShort
-        )
-        pendingSubmissions = true
-        listenFd = true // Set the flag indicating it is now listening
-      }
+      startListening()
 
       // Check for cancel operations
-      if (!cancelOperations.isEmpty()) {
-        if (debugPoll)
-          println(
-            s"[POLL ${Thread.currentThread().getName()}] The Cancel Queue is not empty, it has: ${cancelOperations.size()} elements"
-          )
-        cancelOperations.forEach { case (operationAddress, cb) =>
-          val id = getId(cb)
-          enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, id)
-          ()
-        }
-        cancelOperations.clear()
-      }
+      checkCancelOperations()
 
       nanos match {
         case -1 =>
@@ -356,6 +329,39 @@ object UringSystem extends PollingSystem {
       invokedCbs
     }
 
+    private[this] def startListening(): Unit =
+      if (!listenFd) {
+        if (debugPoll)
+          println(s"[POLL ${Thread.currentThread().getName()}] We are not listening to the FD!")
+
+        enqueueSqe(
+          IORING_OP_POLL_ADD,
+          0,
+          NativeAccess.POLLIN,
+          readEnd.intValue(),
+          0,
+          0,
+          0,
+          NativeAccess.POLLIN.toShort
+        )
+        pendingSubmissions = true
+        listenFd = true // Set the flag indicating it is now listening
+      }
+
+    private[this] def checkCancelOperations(): Unit =
+      if (!cancelOperations.isEmpty()) {
+        if (debugPoll)
+          println(
+            s"[POLL ${Thread.currentThread().getName()}] The Cancel Queue is not empty, it has: ${cancelOperations.size()} elements"
+          )
+        cancelOperations.forEach { case (operationAddress, cb) =>
+          val id = getId(cb)
+          enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, id)
+          ()
+        }
+        cancelOperations.clear()
+      }
+
     private[this] def process(
         completionQueueCallback: UringCompletionQueueCallback
     ): Boolean =
@@ -374,7 +380,7 @@ object UringSystem extends PollingSystem {
          Instead of using a callback for interrupt handling, we manage the interrupt directly within this block.
          Checks for an interrupt by determining if the FileDescriptor (fd) has been written to.
          */
-        if (fd == readEnd.intValue()) {
+        if (fd == readEnd.intValue() && op == IORING_OP_POLL_ADD) {
           val buf = ByteBuffer.allocateDirect(1)
           readEnd.read(buf, 0, 1)
           listenFd = false
