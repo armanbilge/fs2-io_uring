@@ -39,7 +39,6 @@ import fs2.io.uring.unsafe.util.OP._
 
 import scala.collection.mutable.Map
 
-import java.io.IOException
 import java.nio.ByteBuffer
 
 import io.netty.channel.unix.FileDescriptor
@@ -51,7 +50,7 @@ object UringSystem extends PollingSystem {
 
   private final val MaxEvents = 64
 
-  private val debug = false
+  private val debug = true
   private val debugPoll = debug && false
   private val debugCancel = debug && false
   private val debugInterrupt = debug && false
@@ -131,14 +130,14 @@ object UringSystem extends PollingSystem {
       def cancel(
           id: Short,
           correctRing: Poller
-      ): IO[Boolean] = // We need access to the correct ring
+      ): IO[Boolean] =
         IO.uncancelable { _ =>
           IO.async_[Int] { cb =>
             register { ring =>
-              val opAddressToCancel = Encoder.encode(fd, op, id)
+              val operationAddress = Encoder.encode(fd, op, id)
               if (debugCancel)
                 println(
-                  s"[CANCEL ring:${ring.getFd()}] cancel an operation: $op with id: $id and address: $opAddressToCancel"
+                  s"[CANCEL ring:${ring.getFd()}] cancel an operation: $op with id: $id and address: $operationAddress"
                 )
               if (correctRing == ring) {
                 val cancelId = ring.getId(cb)
@@ -146,13 +145,13 @@ object UringSystem extends PollingSystem {
                   println(
                     s"[CANCEL ring:${ring.getFd()}] Cancelling from the same ring!"
                   )
-                ring.cancel(opAddressToCancel, cancelId)
+                ring.enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, cancelId)
               } else {
                 if (debugCancel)
                   println(
                     s"[CANCEL ring:${ring.getFd()}] Cancelling from another ring: cancelled operation is in: ${correctRing.getFd()}"
                   )
-                correctRing.cancelFromDifferentRing(opAddressToCancel, cb)
+                correctRing.enqueueCancelOperation(operationAddress, cb)
               }
 
               ()
@@ -268,21 +267,13 @@ object UringSystem extends PollingSystem {
       sq.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, data)
     }
 
-    private[UringSystem] def cancel(opAddressToCancel: Long, id: Short): Boolean = {
-      enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
-      writeFd() >= 0
-    }
-
-    private[UringSystem] def cancelFromDifferentRing(
-        opAddressToCancel: Long,
+    private[UringSystem] def enqueueCancelOperation(
+        operationAddress: Long,
         cb: Either[Throwable, Int] => Unit
     ): Boolean = {
-      cancelOperations.add((opAddressToCancel, cb))
+      cancelOperations.add((operationAddress, cb))
       writeFd() >= 0
     }
-
-    private[UringSystem] def wakeup() =
-      extraRing.sendMsgRing(0, this.getFd())
 
     private[UringSystem] def writeFd(): Int = {
       val buf = ByteBuffer.allocateDirect(1)
@@ -290,6 +281,9 @@ object UringSystem extends PollingSystem {
       buf.flip()
       writeEnd.write(buf, 0, 1)
     }
+
+    private[UringSystem] def wakeup() =
+      extraRing.sendMsgRing(0, this.getFd())
 
     private[UringSystem] def poll(
         nanos: Long
@@ -323,9 +317,9 @@ object UringSystem extends PollingSystem {
           println(
             s"[POLL ${Thread.currentThread().getName()}] The Cancel Queue is not empty, it has: ${cancelOperations.size()} elements"
           )
-        cancelOperations.forEach { case (opAddressToCancel, cb) =>
+        cancelOperations.forEach { case (operationAddress, cb) =>
           val id = getId(cb)
-          enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, opAddressToCancel, 0, 0, id)
+          enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, id)
           ()
         }
         cancelOperations.clear()
@@ -369,23 +363,9 @@ object UringSystem extends PollingSystem {
 
     private[this] val completionQueueCallback = new UringCompletionQueueCallback {
       override def handle(fd: Int, res: Int, flags: Int, op: Byte, data: Short): Unit = {
-        def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit =
-          if (
-            res < 0 &&
-            (op != 14 && res == -2) // Temporarly, ignore error due to race condition on cancellation
-          )
-            cb(
-              Left(
-                new IOException(
-                  s"Error in completion queue entry of the ring with fd: ${ring
-                      .fd()} with fd: $fd op: $op res: $res and data: $data"
-                )
-              )
-            )
-          else
-            cb(Right(res))
+        def handleCallback(res: Int, cb: Either[Throwable, Int] => Unit): Unit = cb(Right(res))
 
-        if (debugHandleCompletionQueue && data > 9)
+        if (debugHandleCompletionQueue && data > 9 && res < 0)
           println(
             s"[HANDLE CQCB ${ring.fd()}]: fd: $fd, res: $res, flags: $flags, op: $op, data: $data"
           )
