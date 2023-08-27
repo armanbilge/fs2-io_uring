@@ -7,7 +7,7 @@ At its heart fs2-io_uring is an [I/O-integrated runtime](https://github.com/type
 ## Usage
 
 ```scala
-libraryDependencies += "com.armanbilge" %%% "fs2-io_uring" % "0.1.0"
+libraryDependencies += "com.armanbilge" %%% "fs2-io_uring" % "0.2.0"
 ```
 
 You must also install [liburing](https://github.com/axboe/liburing). For performance, I strongly recommend using static linking, for example:
