@@ -19,8 +19,6 @@ package fs2.io.uring
 import cats.effect.IO
 import cats.syntax.parallel._
 
-import fs2.io.uring.UringSuite
-
 import fs2.io.uring.unsafe.util.OP._
 
 class UringSystemSuite extends UringSuite {

@@ -53,8 +53,6 @@ import java.nio.channels.spi.AbstractSelectableChannel
 
 object UringSystem extends PollingSystem {
 
-  private final val MaxEvents = 64
-
   private val debug = false
   private val debugPoll = debug && false
   private val debugCancel = debug && false
@@ -67,6 +65,8 @@ object UringSystem extends PollingSystem {
 
   override def makePoller(): Poller =
     new Poller(UringRing())
+
+  override def close(): Unit = ()
 
   override def closePoller(poller: Poller): Unit = poller.close()
 
@@ -280,6 +280,7 @@ object UringSystem extends PollingSystem {
           case 0 =>
             if (pendingSubmissions) {
               sq.submit()
+              ()
             }
 
           case _ =>
