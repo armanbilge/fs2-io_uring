@@ -215,11 +215,7 @@ object UringSystem extends PollingSystem {
       Map.empty[Short, Either[Throwable, Int] => Unit]
     private[this] val ids = new BitSet(Short.MaxValue)
 
-    private[this] def getUniqueId(): Short = {
-      val newId = ids.nextClearBit(10) // 0-9 are reserved for certain operations
-      ids.set(newId)
-      newId.toShort
-    }
+    // API
 
     private[UringSystem] def getId(
         cb: Either[Throwable, Int] => Unit
@@ -229,14 +225,6 @@ object UringSystem extends PollingSystem {
       callbacks.put(id, cb)
       id
     }
-
-    private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
-
-    private[this] def removeCallback(id: Short): Boolean =
-      callbacks
-        .remove(id)
-        .map(_ => releaseId(id))
-        .isDefined
 
     private[UringSystem] def getFd(): Int = ring.fd()
 
@@ -268,6 +256,68 @@ object UringSystem extends PollingSystem {
       writeFd() >= 0
     }
 
+    private[UringSystem] def poll(
+        nanos: Long
+    ): Boolean =
+      try {
+        begin()
+
+        if (debugPoll)
+          println(s"[POLL ${Thread.currentThread().getName()}] Polling with nanos = $nanos")
+
+        startListening() // Check if it is listening to the FD. If not, start listening
+
+        checkCancelOperations() // Check for cancel operations
+
+        nanos match {
+          case -1 =>
+            if (pendingSubmissions) {
+              sq.submitAndWait()
+            } else {
+              cq.ioUringWaitCqe()
+            }
+
+          case 0 =>
+            if (pendingSubmissions) {
+              sq.submit()
+            }
+
+          case _ =>
+            if (pendingSubmissions) {
+              sq.addTimeout(nanos, 0)
+              sq.submitAndWait()
+            } else {
+              sq.addTimeout(nanos, 0)
+              sq.submit()
+              cq.ioUringWaitCqe()
+            }
+        }
+
+        val invokedCbs = process(completionQueueCallback)
+
+        pendingSubmissions = false
+        invokedCbs
+      } finally
+        end()
+
+    // private
+
+    // CALLBACKS
+    private[this] def getUniqueId(): Short = {
+      val newId = ids.nextClearBit(10) // 0-9 are reserved for certain operations
+      ids.set(newId)
+      newId.toShort
+    }
+
+    private[this] def releaseId(id: Short): Unit = ids.clear(id.toInt)
+
+    private[this] def removeCallback(id: Short): Boolean =
+      callbacks
+        .remove(id)
+        .map(_ => releaseId(id))
+        .isDefined
+
+    // INTERRUPT
     private[this] def writeFd(): Int = {
       val buf = ByteBuffer.allocateDirect(1)
       buf.put(0.toByte)
@@ -275,79 +325,7 @@ object UringSystem extends PollingSystem {
       writeEnd.write(buf, 0, 1)
     }
 
-    override def keys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
-
-    override def selectedKeys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
-
-    override def selectNow(): Int = throw new UnsupportedOperationException
-
-    override def select(x$1: Long): Int = throw new UnsupportedOperationException
-
-    override def select(): Int = throw new UnsupportedOperationException
-
-    override def wakeup(): Selector = {
-      writeFd()
-      this
-    }
-
-    override protected def implCloseSelector(): Unit = {
-      readEnd.close()
-      writeEnd.close()
-      ring.close()
-    }
-
-    override protected def register(
-        x$1: AbstractSelectableChannel,
-        x$2: Int,
-        x$3: Object
-    ): SelectionKey = throw new UnsupportedOperationException
-
-    private[UringSystem] def poll(
-        nanos: Long
-    ): Boolean = {
-      begin()
-
-      if (debugPoll)
-        println(s"[POLL ${Thread.currentThread().getName()}] Polling with nanos = $nanos")
-
-      // Check if it is listening to the FD. If not, start listening
-      startListening()
-
-      // Check for cancel operations
-      checkCancelOperations()
-
-      nanos match {
-        case -1 =>
-          if (pendingSubmissions) {
-            sq.submitAndWait()
-          } else {
-            cq.ioUringWaitCqe()
-          }
-
-        case 0 =>
-          if (pendingSubmissions) {
-            sq.submit()
-          }
-
-        case _ =>
-          if (pendingSubmissions) {
-            sq.addTimeout(nanos, 0)
-            sq.submitAndWait()
-          } else {
-            sq.addTimeout(nanos, 0)
-            sq.submit()
-            cq.ioUringWaitCqe()
-          }
-      }
-
-      val invokedCbs = process(completionQueueCallback)
-
-      pendingSubmissions = false
-
-      end()
-
-      invokedCbs
-    }
+    // POLL
 
     private[this] def startListening(): Unit =
       if (!listenFd) {
@@ -413,5 +391,34 @@ object UringSystem extends PollingSystem {
         }
       }
     }
+
+    // ABSTRACT SELECTOR
+    override def keys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
+
+    override def selectedKeys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
+
+    override def selectNow(): Int = throw new UnsupportedOperationException
+
+    override def select(x$1: Long): Int = throw new UnsupportedOperationException
+
+    override def select(): Int = throw new UnsupportedOperationException
+
+    override def wakeup(): Selector = {
+      writeFd()
+      this
+    }
+
+    override protected def implCloseSelector(): Unit = {
+      readEnd.close()
+      writeEnd.close()
+      ring.close()
+    }
+
+    override protected def register(
+        x$1: AbstractSelectableChannel,
+        x$2: Int,
+        x$3: Object
+    ): SelectionKey = throw new UnsupportedOperationException
+
   }
 }
