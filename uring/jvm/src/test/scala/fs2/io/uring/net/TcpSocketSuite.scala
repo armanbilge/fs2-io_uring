@@ -30,6 +30,7 @@ import cats.effect.kernel.Resource
 import scala.concurrent.duration._
 import java.io.IOException
 import fs2.io.net.Socket
+import java.util.concurrent.TimeoutException
 
 class TcpSocketSuite extends UringSuite {
   val debug = false
@@ -230,9 +231,6 @@ class TcpSocketSuite extends UringSuite {
 
   val repetitions: Int = 1
 
-  /*
-    TODO: (Very rare) second cancellation with error -2 (we shouldn't have a second cancellation (?))
-   */
   test("echo requests - each concurrent client gets back what it sent") {
     val message = Chunk.array("fs2.rocks".getBytes)
     val clientCount = 20L
@@ -273,9 +271,6 @@ class TcpSocketSuite extends UringSuite {
     test.replicateA(repetitions).void
   }
 
-  /*
-    TODO: (Very rare) error -107
-   */
   test("readN yields chunks of the requested size") {
     val message = Chunk.array("123456789012345678901234567890".getBytes)
     val sizes = Vector(1, 2, 3, 4, 3, 2, 1)
@@ -427,6 +422,22 @@ class TcpSocketSuite extends UringSuite {
           .compile
           .drain
       }
+    }
+  }
+
+  test("can shutdown a socket that's pending a read") {
+    val timeout = 2.seconds
+    val test = sg.serverResource().use { case (bindAddress, clients) =>
+      sg.client(bindAddress).use { _ =>
+        clients.head.flatMap(_.reads).compile.drain.timeout(2.seconds).recover {
+          case _: TimeoutException => ()
+        }
+      }
+    }
+
+    // also test that timeouts are working correctly
+    test.timed.flatMap { case (duration, _) =>
+      IO(assert(clue(duration) < (timeout + 100.millis)))
     }
   }
 }
