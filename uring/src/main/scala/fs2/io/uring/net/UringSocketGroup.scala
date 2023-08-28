@@ -29,7 +29,7 @@ import fs2.io.net.Socket
 import fs2.io.net.SocketGroup
 import fs2.io.net.SocketOption
 import fs2.io.uring.unsafe.netinetin._
-import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.sys.socket._

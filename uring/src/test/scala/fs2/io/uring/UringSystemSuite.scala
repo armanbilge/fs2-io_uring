@@ -17,7 +17,7 @@
 package fs2.io.uring
 
 import cats.effect.IO
-import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 
 class UringSystemSuite extends UringSuite {
 

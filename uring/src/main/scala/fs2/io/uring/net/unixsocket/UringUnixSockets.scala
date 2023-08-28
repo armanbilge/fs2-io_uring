@@ -32,7 +32,7 @@ import fs2.io.net.unixsocket.UnixSockets
 import fs2.io.uring.unsafe.syssocket._
 import fs2.io.uring.unsafe.sysun._
 import fs2.io.uring.unsafe.sysunOps._
-import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 import fs2.io.uring.unsafe.util._
 
 import scala.scalanative.libc.errno._
