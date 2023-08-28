@@ -19,7 +19,7 @@ package fs2.io.uring
 import cats.effect.IO
 import fs2.io.uring.unsafe.UringRuntime
 import fs2.io.uring.unsafe.UringExecutorScheduler
-import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 
 import scala.concurrent.duration._
 
