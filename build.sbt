@@ -34,7 +34,13 @@ ThisBuild / githubWorkflowPublishPreamble +=
 
 val ceVersion = "3.6-e9aeb8c"
 val fs2Version = "3.8.0"
+val nettyVersion = "0.0.21.Final"
 val munitCEVersion = "2.0.0-M3"
+
+lazy val classifier = System.getProperty("os.arch") match {
+  case "amd64"   => "linux-x86_64"
+  case "aarch64" => "linux-aarch_64"
+}
 
 ThisBuild / nativeConfig ~= { c =>
   if (Option(System.getenv("CI")).contains("true"))
@@ -53,9 +59,10 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
     libraryDependencies ++= Seq(
       "org.typelevel" %%% "cats-effect" % ceVersion,
       "co.fs2" %%% "fs2-io" % fs2Version,
+      "io.netty.incubator" % "netty-incubator-transport-classes-io_uring" % nettyVersion,
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test,
-      ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % "0.0.21.Final")
-        .classifier("linux-x86_64")
+      ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % nettyVersion % Test)
+        .classifier(classifier)
     ),
     Test / testOptions += Tests.Argument("+l")
   )
