@@ -59,10 +59,15 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
     libraryDependencies ++= Seq(
       "org.typelevel" %%% "cats-effect" % ceVersion,
       "co.fs2" %%% "fs2-io" % fs2Version,
+      "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test
+    ),
+    Test / testOptions += Tests.Argument("+l")
+  )
+  .jvmSettings(
+    libraryDependencies ++= Seq(
       "io.netty.incubator" % "netty-incubator-transport-classes-io_uring" % nettyVersion,
-      "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test,
       ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % nettyVersion % Test)
         .classifier(classifier)
     ),
-    Test / testOptions += Tests.Argument("+l")
+    fork := true
   )

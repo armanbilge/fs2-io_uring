@@ -132,31 +132,29 @@ object UringSystem extends PollingSystem {
           id: Short,
           correctRing: Poller
       ): IO[Boolean] =
-        IO.uncancelable { _ =>
-          IO.async_[Int] { cb =>
-            register { ring =>
-              val operationAddress = Encoder.encode(fd, op, id)
+        IO.async_[Int] { cb =>
+          register { ring =>
+            val operationAddress = Encoder.encode(fd, op, id)
+            if (debugCancel)
+              println(
+                s"[CANCEL ring:${ring.getFd()}] cancel an operation: $op with id: $id and address: $operationAddress"
+              )
+            if (correctRing == ring) {
+              val cancelId = ring.getId(cb)
               if (debugCancel)
                 println(
-                  s"[CANCEL ring:${ring.getFd()}] cancel an operation: $op with id: $id and address: $operationAddress"
+                  s"[CANCEL ring:${ring.getFd()}] Cancelling from the same ring!"
                 )
-              if (correctRing == ring) {
-                val cancelId = ring.getId(cb)
-                if (debugCancel)
-                  println(
-                    s"[CANCEL ring:${ring.getFd()}] Cancelling from the same ring!"
-                  )
-                ring.enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, cancelId)
-              } else {
-                if (debugCancel)
-                  println(
-                    s"[CANCEL ring:${ring.getFd()}] Cancelling from another ring: cancelled operation is in: ${correctRing.getFd()}"
-                  )
-                correctRing.enqueueCancelOperation(operationAddress, cb)
-              }
-
-              ()
+              ring.enqueueSqe(IORING_OP_ASYNC_CANCEL, 0, 0, -1, operationAddress, 0, 0, cancelId)
+            } else {
+              if (debugCancel)
+                println(
+                  s"[CANCEL ring:${ring.getFd()}] Cancelling from another ring: cancelled operation is in: ${correctRing.getFd()}"
+                )
+              correctRing.enqueueCancelOperation(operationAddress, cb)
             }
+
+            ()
           }
         }.map(_ == 0)
 
