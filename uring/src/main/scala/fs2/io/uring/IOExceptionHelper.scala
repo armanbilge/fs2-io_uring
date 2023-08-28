@@ -19,6 +19,8 @@ package fs2.io.uring
 import java.io.IOException
 import java.net.ConnectException
 import java.net.BindException
+import scala.scalanative.posix.string._
+import scala.scalanative.unsafe._
 
 private[uring] object IOExceptionHelper {
 
@@ -29,7 +31,7 @@ private[uring] object IOExceptionHelper {
       new BindException("Cannot assign requested address")
     case 111 => // ECONNREFUSED
       new ConnectException("Connection refused")
-    case _ => new IOException(errno.toString)
+    case _ => new IOException(fromCString(strerror(errno)))
   }
 
 }

@@ -31,7 +31,6 @@ import fs2.io.net.Socket
 import fs2.io.uring.unsafe.uringOps._
 import fs2.io.uring.unsafe.util._
 
-import java.io.IOException
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.sys.socket._
 import scala.scalanative.posix.errno._
@@ -109,7 +108,7 @@ private[net] object UringSocket {
     F.delay {
       SocketAddressHelpers.toSocketAddress { (addr, len) =>
         if (getsockname(fd, addr, len) == -1)
-          Left(new IOException(s"getsockname: ${errno}"))
+          Left(IOExceptionHelper(errno))
         else
           Either.unit
       }
