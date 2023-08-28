@@ -28,7 +28,7 @@ import com.comcast.ip4s.IpAddress
 import com.comcast.ip4s.SocketAddress
 import fs2.Pipe
 import fs2.io.net.Socket
-import fs2.io.uring.unsafe.uring._
+import fs2.io.uring.unsafe.uringOps._
 import fs2.io.uring.unsafe.util._
 
 import java.io.IOException
