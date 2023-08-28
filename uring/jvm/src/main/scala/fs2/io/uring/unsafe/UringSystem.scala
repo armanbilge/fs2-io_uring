@@ -45,6 +45,11 @@ import io.netty.channel.unix.FileDescriptor
 
 import java.util.BitSet
 import java.util.concurrent.ConcurrentLinkedDeque
+import java.nio.channels.spi.AbstractSelector
+import java.{util => ju}
+import java.nio.channels.Selector
+import java.nio.channels.SelectionKey
+import java.nio.channels.spi.AbstractSelectableChannel
 
 object UringSystem extends PollingSystem {
 
@@ -79,11 +84,7 @@ object UringSystem extends PollingSystem {
       println(
         s"[INTERRUPT ${Thread.currentThread().getName()}] waking up poller: ${targetPoller.getFd()} in thread: $targetThread"
       )
-    // Interrupt using an extra ring
-    // targetPoller.wakeup()
-
-    // Interrupt using a pipe
-    targetPoller.writeFd()
+    targetPoller.wakeup()
     ()
   }
 
@@ -195,14 +196,12 @@ object UringSystem extends PollingSystem {
     }
   }
 
-  final class Poller private[UringSystem] (ring: UringRing) {
+  final class Poller private[UringSystem] (ring: UringRing) extends AbstractSelector(null) {
 
     private[this] val interruptFd = FileDescriptor.pipe()
     private[this] val readEnd = interruptFd(0)
     private[this] val writeEnd = interruptFd(1)
     private[this] var listenFd: Boolean = false
-
-    private[this] val extraRing: UringRing = UringRing()
 
     private[this] val cancelOperations
         : ConcurrentLinkedDeque[(Long, Either[Throwable, Int] => Unit)] =
@@ -243,12 +242,6 @@ object UringSystem extends PollingSystem {
 
     private[UringSystem] def needsPoll(): Boolean = pendingSubmissions || !callbacks.isEmpty
 
-    private[UringSystem] def close(): Unit = {
-      readEnd.close()
-      writeEnd.close()
-      ring.close()
-    }
-
     private[UringSystem] def enqueueSqe(
         op: Byte,
         flags: Int,
@@ -275,19 +268,44 @@ object UringSystem extends PollingSystem {
       writeFd() >= 0
     }
 
-    private[UringSystem] def writeFd(): Int = {
+    private[this] def writeFd(): Int = {
       val buf = ByteBuffer.allocateDirect(1)
       buf.put(0.toByte)
       buf.flip()
       writeEnd.write(buf, 0, 1)
     }
 
-    private[UringSystem] def wakeup() =
-      extraRing.sendMsgRing(0, this.getFd())
+    override def keys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
+
+    override def selectedKeys(): ju.Set[SelectionKey] = throw new UnsupportedOperationException
+
+    override def selectNow(): Int = throw new UnsupportedOperationException
+
+    override def select(x$1: Long): Int = throw new UnsupportedOperationException
+
+    override def select(): Int = throw new UnsupportedOperationException
+
+    override def wakeup(): Selector = {
+      writeFd()
+      this
+    }
+
+    override protected def implCloseSelector(): Unit = {
+      readEnd.close()
+      writeEnd.close()
+      ring.close()
+    }
+
+    override protected def register(
+        x$1: AbstractSelectableChannel,
+        x$2: Int,
+        x$3: Object
+    ): SelectionKey = throw new UnsupportedOperationException
 
     private[UringSystem] def poll(
         nanos: Long
     ): Boolean = {
+      begin()
 
       if (debugPoll)
         println(s"[POLL ${Thread.currentThread().getName()}] Polling with nanos = $nanos")
@@ -325,6 +343,8 @@ object UringSystem extends PollingSystem {
       val invokedCbs = process(completionQueueCallback)
 
       pendingSubmissions = false
+
+      end()
 
       invokedCbs
     }
