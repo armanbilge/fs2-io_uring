@@ -1,4 +1,4 @@
-ThisBuild / tlBaseVersion := "0.2"
+ThisBuild / tlBaseVersion := "0.3"
 
 ThisBuild / organization := "com.armanbilge"
 ThisBuild / organizationName := "Arman Bilge"
@@ -12,10 +12,10 @@ ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 
 ThisBuild / githubWorkflowBuild ~= { steps =>
   steps.flatMap {
-    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _) =>
+    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _, _, _) =>
       List(WorkflowStep.Sbt(List("compile"), name = Some("Compile")))
-    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _) => Nil
-    case step                                                 => List(step)
+    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _, _, _) => Nil
+    case step                                                       => List(step)
   }
 }
 
@@ -32,7 +32,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
   )
 
 val ceVersion = "3.6-e9aeb8c"
-val fs2Version = "3.7.0"
+val fs2Version = "3.8.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>

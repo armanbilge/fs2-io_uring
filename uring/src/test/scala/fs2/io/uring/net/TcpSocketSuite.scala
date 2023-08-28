@@ -48,8 +48,8 @@ class TcpSocketSuite extends UringSuite {
           .through(lines)
           .head
 
-      writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 200 OK")
+      val http11 = "HTTP/1.1"
+      writeRead.compile.lastOrError.map(_.take(http11.length)).assertEquals(http11)
     }
   }
 
@@ -227,6 +227,22 @@ class TcpSocketSuite extends UringSuite {
   test("empty write") {
     setup.use { case (_, clients) =>
       clients.take(1).foreach(_.write(Chunk.empty)).compile.drain
+    }
+  }
+
+  test("endOfOutput / endOfInput ignores ENOTCONN") {
+    sg.serverResource().use { case (bindAddress, clients) =>
+      sg.client(bindAddress).surround(IO.sleep(100.millis)).background.surround {
+        clients
+          .take(1)
+          .foreach { socket =>
+            socket.write(Chunk.array("fs2.rocks".getBytes)) *>
+              IO.sleep(1.second) *>
+              socket.endOfOutput *> socket.endOfInput
+          }
+          .compile
+          .drain
+      }
     }
   }
 

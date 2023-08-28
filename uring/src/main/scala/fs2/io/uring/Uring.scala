@@ -26,9 +26,13 @@ import scala.scalanative.unsafe.Ptr
 
 abstract class Uring private[uring] {
 
-  def call(prep: Ptr[io_uring_sqe] => Unit): IO[Int]
+  private[this] val noopMask: Int => Boolean = _ => false
 
-  def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): Resource[IO, Int]
+  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): IO[Int]
+
+  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(
+      release: Int => IO[Unit]
+  ): Resource[IO, Int]
 }
 
 object Uring {
