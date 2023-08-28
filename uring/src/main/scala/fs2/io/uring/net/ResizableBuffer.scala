@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-package fs2.io.uring.net
+package fs2.io.uring
+package net
 
 import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
-import cats.syntax.all._
 
 import scala.scalanative.libc.errno._
 import scala.scalanative.libc.stdlib._
@@ -32,15 +32,15 @@ private[net] final class ResizableBuffer[F[_]] private (
 
   def get(size: Int): F[Ptr[Byte]] = F.delay {
     if (size <= this.size)
-      F.pure(ptr)
+      ptr
     else {
       ptr = realloc(ptr, size.toUInt)
       this.size = size
       if (ptr == null)
-        F.raiseError[Ptr[Byte]](new RuntimeException(s"realloc: ${errno}"))
-      else F.pure(ptr)
+        throw IOExceptionHelper(errno)
+      else ptr
     }
-  }.flatten
+  }
 
 }
 
