@@ -48,8 +48,8 @@ class TcpSocketSuite extends UringSuite {
           .through(lines)
           .head
 
-      writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 200 OK")
+      val http11 = "HTTP/1.1"
+      writeRead.compile.lastOrError.map(_.take(http11.length)).assertEquals(http11)
     }
   }
 

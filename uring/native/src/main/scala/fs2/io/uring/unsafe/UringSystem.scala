@@ -24,8 +24,8 @@ import cats.effect.IO
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Resource
-import cats.effect.unsafe.PollingSystem
 import cats.effect.std.Mutex
+import cats.effect.unsafe.PollingSystem
 import cats.syntax.all._
 
 import java.util.Collections
@@ -45,16 +45,24 @@ object UringSystem extends PollingSystem {
 
   type Api = Uring with FileDescriptorPoller
 
+  def close(): Unit = ()
+
   def makeApi(register: (Poller => Unit) => Unit): Api =
     new ApiImpl(register)
 
   def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
 
+    val flags = IORING_SETUP_SUBMIT_ALL |
+      IORING_SETUP_COOP_TASKRUN |
+      IORING_SETUP_TASKRUN_FLAG |
+      IORING_SETUP_SINGLE_ISSUER |
+      IORING_SETUP_DEFER_TASKRUN
+
     // the submission queue size need not exceed 64
     // every submission is accompanied by async suspension,
     // and at most 64 suspensions can happen per iteration
-    val e = io_uring_queue_init(64.toUInt, ring, 0.toUInt)
+    val e = io_uring_queue_init(64.toUInt, ring, flags.toUInt)
     if (e < 0) throw IOExceptionHelper(-e)
 
     new Poller(ring)

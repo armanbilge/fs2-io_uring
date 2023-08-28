@@ -1,4 +1,4 @@
-ThisBuild / tlBaseVersion := "0.2"
+ThisBuild / tlBaseVersion := "0.3"
 
 ThisBuild / organization := "com.armanbilge"
 ThisBuild / organizationName := "Arman Bilge"
@@ -6,38 +6,38 @@ ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2022)
 ThisBuild / tlSonatypeUseLegacyHost := false
 
-ThisBuild / crossScalaVersions := Seq("3.2.2", "2.13.10")
+ThisBuild / crossScalaVersions := Seq("3.3.0", "2.13.11")
 
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
-ThisBuild / githubWorkflowOSes := Seq("ubuntu-20.04", "ubuntu-22.04")
 
-ThisBuild / githubWorkflowBuildPreamble ++= {
-  val brew = "/home/linuxbrew/.linuxbrew/bin/brew"
-  List(
-    WorkflowStep.Run(
-      List("uname -a")
-    ),
-    WorkflowStep.Run(
-      List(s"$brew install liburing"),
-      name = Some("Install liburing"),
-      cond = Some("matrix.project == 'rootNative'")
-    )
-  )
+ThisBuild / githubWorkflowBuild ~= { steps =>
+  steps.flatMap {
+    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _, _, _) => Nil
+    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _, _, _) =>
+      List(step.copy(commands = List("Test/compile"), name = Some("Compile")))
+    case step => List(step)
+  }
 }
 
 ThisBuild / githubWorkflowBuild +=
   WorkflowStep.Run(
     List("clang-format --dry-run --Werror uring/native/src/main/resources/scala-native/*.c"),
-    name = Some("Check formatting of C sources")
+    name = Some("Check formatting of C sources"),
+    cond = Some("matrix.project == 'rootNative'")
   )
 
-val ceVersion = "3.6-0142603"
-val fs2Version = "3.7.0"
+ThisBuild / githubWorkflowPublishPreamble +=
+  WorkflowStep.Use(
+    UseRef.Public("typelevel", "await-cirrus", "main"),
+    name = Some("Wait for Cirrus CI")
+  )
+
+val ceVersion = "3.6-e9aeb8c"
+val fs2Version = "3.8.0"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
-  val arch = System.getProperty("os.arch").toLowerCase()
-  if (Set("arm64", "aarch64").contains(arch))
+  if (Option(System.getenv("CI")).contains("true"))
     c.withLinkingOptions(c.linkingOptions :+ "-luring")
   else
     c.withCompileOptions(c.compileOptions :+ "-I/home/linuxbrew/.linuxbrew/include")

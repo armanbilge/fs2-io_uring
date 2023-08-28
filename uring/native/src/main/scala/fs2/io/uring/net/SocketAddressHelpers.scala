@@ -18,6 +18,7 @@ package fs2.io.uring.net
 
 import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
+import cats.syntax.all._
 import com.comcast.ip4s.IpAddress
 import com.comcast.ip4s.Ipv4Address
 import com.comcast.ip4s.Ipv6Address
@@ -37,12 +38,11 @@ private[net] object SocketAddressHelpers {
 
   def allocateSockaddr[F[_]](implicit F: Sync[F]): Resource[F, (Ptr[sockaddr], Ptr[socklen_t])] =
     Resource
-      .make(F.delay(Zone.open()))(z => F.delay(z.close()))
-      .evalMap { implicit z =>
+      .make(F.delay(new Array[Byte]((sizeof[socklen_t] + sizeof[sockaddr_in6]).toInt)))(_.pure.void)
+      .evalMap { alloc =>
         F.delay {
-          val addr = // allocate enough for an IPv6
-            alloc[sockaddr_in6]().asInstanceOf[Ptr[sockaddr]]
-          val len = alloc[socklen_t]()
+          val len = alloc.at(0).asInstanceOf[Ptr[socklen_t]]
+          val addr = alloc.at(sizeof[socklen_t].toInt).asInstanceOf[Ptr[sockaddr]]
           (addr, len)
         }
       }

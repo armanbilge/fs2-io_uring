@@ -35,6 +35,7 @@ import fs2.io.uring.unsafe.util._
 import java.io.IOException
 import scala.scalanative.libc.errno._
 import scala.scalanative.posix.sys.socket._
+import scala.scalanative.posix.errno._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 import scala.scalanative.posix.errno._

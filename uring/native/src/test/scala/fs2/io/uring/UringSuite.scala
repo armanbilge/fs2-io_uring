@@ -17,15 +17,12 @@
 package fs2.io.uring
 
 import cats.effect.unsafe.IORuntime
-import cats.effect.unsafe.IORuntimeConfig
 import fs2.io.uring.unsafe.UringSystem
 import munit.CatsEffectSuite
 
 abstract class UringSuite extends CatsEffectSuite {
 
-  override lazy val munitIORuntime = {
-    val (loop, poller) = IORuntime.createEventLoop(UringSystem)
-    IORuntime(loop, loop, loop, List(poller), () => (), IORuntimeConfig())
-  }
+  override lazy val munitIORuntime =
+    IORuntime.builder().setPollingSystem(UringSystem).build()
 
 }
