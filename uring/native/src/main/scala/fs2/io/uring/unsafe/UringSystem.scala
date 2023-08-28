@@ -24,7 +24,7 @@ import cats.effect.IO
 import cats.effect.kernel.Cont
 import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Resource
-import cats.effect.std.Semaphore
+import cats.effect.std.Mutex
 import cats.effect.unsafe.PollingSystem
 import cats.syntax.all._
 
@@ -45,16 +45,24 @@ object UringSystem extends PollingSystem {
 
   type Api = Uring with FileDescriptorPoller
 
+  def close(): Unit = ()
+
   def makeApi(register: (Poller => Unit) => Unit): Api =
     new ApiImpl(register)
 
   def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
 
+    val flags = IORING_SETUP_SUBMIT_ALL |
+      IORING_SETUP_COOP_TASKRUN |
+      IORING_SETUP_TASKRUN_FLAG |
+      IORING_SETUP_SINGLE_ISSUER |
+      IORING_SETUP_DEFER_TASKRUN
+
     // the submission queue size need not exceed 64
     // every submission is accompanied by async suspension,
     // and at most 64 suspensions can happen per iteration
-    val e = io_uring_queue_init(64.toUInt, ring, 0.toUInt)
+    val e = io_uring_queue_init(64.toUInt, ring, flags.toUInt)
     if (e < 0) throw IOExceptionHelper(-e)
 
     new Poller(ring)
@@ -75,13 +83,17 @@ object UringSystem extends PollingSystem {
       with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
-    def call(prep: Ptr[io_uring_sqe] => Unit): IO[Int] =
-      exec(prep)(noopRelease)
+    def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
+      exec(prep, mask)(noopRelease)
 
-    def bracket(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): Resource[IO, Int] =
-      Resource.makeFull[IO, Int](poll => poll(exec(prep)(release(_))))(release(_))
+    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): Resource[IO, Int] =
+      Resource.makeFull[IO, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
 
-    private def exec(prep: Ptr[io_uring_sqe] => Unit)(release: Int => IO[Unit]): IO[Int] =
+    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): IO[Int] =
       IO.cont {
         new Cont[IO, Int, Int] {
           def apply[F[_]](implicit
@@ -104,13 +116,13 @@ object UringSystem extends PollingSystem {
                       F.unit,
                       // if cannot cancel, fallback to get
                       get.flatMap { rtn =>
-                        if (rtn < 0) F.raiseError(IOExceptionHelper(-rtn))
+                        if (rtn < 0 && !mask(-rtn)) F.raiseError(IOExceptionHelper(-rtn))
                         else lift(release(rtn))
                       }
                     )
                   )
                 }
-                .flatTap(e => F.raiseWhen(e < 0)(IOExceptionHelper(-e)))
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
             }
           }
         }
@@ -130,11 +142,11 @@ object UringSystem extends PollingSystem {
         writes: Boolean
     ): Resource[IO, FileDescriptorPollHandle] =
       Resource.eval {
-        (Semaphore[IO](1), Semaphore[IO](1)).mapN { (readSemaphore, writeSemaphore) =>
+        (Mutex[IO], Mutex[IO]).mapN { (readMutex, writeMutex) =>
           new FileDescriptorPollHandle {
 
             def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              readSemaphore.permit.surround {
+              readMutex.lock.surround {
                 a.tailRecM { a =>
                   f(a).flatTap { r =>
                     if (r.isRight)
@@ -146,7 +158,7 @@ object UringSystem extends PollingSystem {
               }
 
             def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              writeSemaphore.permit.surround {
+              writeMutex.lock.surround {
                 a.tailRecM { a =>
                   f(a).flatTap { r =>
                     if (r.isRight)
