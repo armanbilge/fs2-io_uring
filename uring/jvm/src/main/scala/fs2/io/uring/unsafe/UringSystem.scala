@@ -79,12 +79,17 @@ object UringSystem extends PollingSystem {
 
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
+  def getCurrentPollerIfAvailable(): Option[Poller] = None // TODO
+
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = {
     if (debugInterrupt)
       println(
         s"[INTERRUPT ${Thread.currentThread().getName()}] waking up poller: ${targetPoller.getFd()} in thread: $targetThread"
       )
-    targetPoller.wakeup()
+    getCurrentPollerIfAvailable() match {
+      case Some(poller) => poller.sendMsg(targetPoller.getFd())
+      case None         => targetPoller.wakeup()
+    }
     ()
   }
 
@@ -201,6 +206,8 @@ object UringSystem extends PollingSystem {
     private[this] val writeEnd = interruptFd(1)
     private[this] var listenFd: Boolean = false
 
+    private[this] val interruptRing: UringRing = UringRing()
+
     private[this] val cancelOperations
         : ConcurrentLinkedDeque[(Long, Either[Throwable, Int] => Unit)] =
       new ConcurrentLinkedDeque()
@@ -249,9 +256,15 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def enqueueCancelOperation(
         operationAddress: Long,
         cb: Either[Throwable, Int] => Unit
-    ): Boolean = {
+    ): Unit = {
       cancelOperations.add((operationAddress, cb))
-      writeFd() >= 0
+      wakeup()
+      ()
+    }
+
+    private[UringSystem] def sendMsg(fd: Int): Unit = {
+      enqueueSqe(op = IORING_OP_MSG_RING, 0, 0, fd, 0, 0, 0, 0)
+      ()
     }
 
     private[UringSystem] def poll(
@@ -317,15 +330,14 @@ object UringSystem extends PollingSystem {
         .isDefined
 
     // INTERRUPT
-    private[this] def writeFd(): Int = {
-      val buf = ByteBuffer.allocateDirect(1)
-      buf.put(0.toByte)
-      buf.flip()
-      writeEnd.write(buf, 0, 1)
-    }
+    // private[this] def writeFd(): Int = {
+    //   val buf = ByteBuffer.allocateDirect(1)
+    //   buf.put(0.toByte)
+    //   buf.flip()
+    //   writeEnd.write(buf, 0, 1)
+    // }
 
     // POLL
-
     private[this] def startListening(): Unit =
       if (!listenFd) {
         if (debugPoll)
@@ -403,7 +415,11 @@ object UringSystem extends PollingSystem {
     override def select(): Int = throw new UnsupportedOperationException
 
     override def wakeup(): Selector = {
-      writeFd()
+      val interruptCq = interruptRing.ioUringCompletionQueue()
+      if (interruptCq.hasCompletions()) {
+        interruptCq.process(completionQueueCallback)
+      }
+      interruptRing.sendMsgRing(0, this.getFd())
       this
     }
 
