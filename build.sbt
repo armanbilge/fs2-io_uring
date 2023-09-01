@@ -34,7 +34,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
 
 val ceVersion = "3.6-e9aeb8c"
 val fs2Version = "3.8.0"
-val nettyVersion = "0.0.21.Final"
+val nettyVersion = "0.0.22.Final"
 val munitCEVersion = "2.0.0-M3"
 
 lazy val classifier = System.getProperty("os.arch") match {
