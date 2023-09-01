@@ -418,6 +418,7 @@ object UringSystem extends PollingSystem {
       val interruptCq = interruptRing.ioUringCompletionQueue()
       if (interruptCq.hasCompletions()) {
         interruptCq.process(completionQueueCallback)
+        ()
       }
       interruptRing.sendMsgRing(0, this.getFd())
       this
