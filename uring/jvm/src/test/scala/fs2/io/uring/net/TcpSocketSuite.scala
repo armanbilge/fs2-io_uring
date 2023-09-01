@@ -426,6 +426,26 @@ class TcpSocketSuite extends UringSuite {
   }
 
   test("can shutdown a socket that's pending a read") {
+    val warmup = sg.client(SocketAddress(host"postman-echo.com", port"80")).use { socket =>
+      val msg =
+        """|GET /get HTTP/1.1
+            |Host: postman-echo.com
+            |
+            |""".stripMargin
+
+      val writeRead =
+        Stream(msg)
+          .through(utf8.encode[IO])
+          .through(socket.writes) ++
+          socket.reads
+            .through(utf8.decode[IO])
+            .through(lines)
+            .head
+
+      writeRead.compile.lastOrError
+        .assertEquals("HTTP/1.1 200 OK")
+    }
+
     val timeout = 2.seconds
     val test = sg.serverResource().use { case (bindAddress, clients) =>
       sg.client(bindAddress).use { _ =>
@@ -436,7 +456,7 @@ class TcpSocketSuite extends UringSuite {
     }
 
     // also test that timeouts are working correctly
-    test.timed.flatMap { case (duration, _) =>
+    warmup *> test.timed.flatMap { case (duration, _) =>
       IO(assert(clue(duration) < (timeout + 100.millis)))
     }
   }
