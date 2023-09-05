@@ -125,7 +125,7 @@ private[uring] object UringExecutorScheduler {
 
   def apply(pollEvery: Int, maxEvents: Int): (UringExecutorScheduler, () => Unit) = {
     val alloc = new Array[Byte](sizeof[io_uring].toInt)
-    @inline def ring = alloc.at(0).asInstanceOf[Ptr[io_uring]]
+    @inline def ring = alloc.atUnsafe(0).asInstanceOf[Ptr[io_uring]]
 
     val flags = IORING_SETUP_SUBMIT_ALL |
       IORING_SETUP_COOP_TASKRUN |

@@ -23,13 +23,13 @@ import scala.scalanative.unsigned._
 private[uring] object util {
 
   def toPtr(bytes: Array[Byte], ptr: Ptr[Byte]): Unit = {
-    memcpy(ptr, bytes.at(0), bytes.length.toUInt)
+    memcpy(ptr, bytes.atUnsafe(0), bytes.length.toUInt)
     ()
   }
 
   def toArray(ptr: Ptr[Byte], length: Int): Array[Byte] = {
     val bytes = new Array[Byte](length)
-    memcpy(bytes.at(0), ptr, length.toUInt)
+    memcpy(bytes.atUnsafe(0), ptr, length.toUInt)
     bytes
   }
 
