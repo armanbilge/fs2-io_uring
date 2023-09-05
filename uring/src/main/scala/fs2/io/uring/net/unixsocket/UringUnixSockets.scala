@@ -109,7 +109,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
           F.raiseError(new IllegalArgumentException(s"Path too long: $path"))
         else
           F.delay {
-            val addr = alloc.at(0).asInstanceOf[Ptr[sockaddr_un]]
+            val addr = alloc.atUnsafe(0).asInstanceOf[Ptr[sockaddr_un]]
             addr.sun_family = AF_UNIX.toUShort
             toPtr(pathBytes, addr.sun_path.at(0))
             addr.asInstanceOf[Ptr[sockaddr]]
