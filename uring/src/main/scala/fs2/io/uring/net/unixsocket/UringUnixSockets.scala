@@ -111,7 +111,7 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
           F.delay {
             val addr = alloc.atUnsafe(0).asInstanceOf[Ptr[sockaddr_un]]
             addr.sun_family = AF_UNIX.toUShort
-            toPtr(pathBytes, addr.sun_path.atUnsafe(0))
+            toPtr(pathBytes, addr.sun_path.at(0))
             addr.asInstanceOf[Ptr[sockaddr]]
           }
       }
