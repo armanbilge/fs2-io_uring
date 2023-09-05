@@ -242,6 +242,20 @@ private[uring] object uringOps {
     sqe.msg_flags = flags.toUInt
   }
 
+  def io_uring_prep_shutdown(sqe: Ptr[io_uring_sqe], fd: CInt, how: CInt): Unit =
+    io_uring_prep_rw(IORING_OP_SHUTDOWN, sqe, fd, null, how.toUInt, 0.toULong)
+
+  def io_uring_prep_socket(
+      sqe: Ptr[io_uring_sqe],
+      domain: CInt,
+      `type`: CInt,
+      protocol: CInt,
+      flags: CUnsignedInt
+  ): Unit = {
+    io_uring_prep_rw(IORING_OP_SOCKET, sqe, domain, null, protocol.toUInt, `type`.toULong)
+    sqe.rw_flags = flags.toUInt
+  }
+
   def io_uring_sqe_set_data[A <: AnyRef](sqe: Ptr[io_uring_sqe], data: A): Unit =
     sqe.user_data = castRawPtrToLong(castObjectToRawPtr(data)).toULong
 
@@ -285,20 +299,6 @@ private[uring] object uringOps {
     def user_data_=(user_data: __u64): Unit = !io_uring_sqe.at9 = user_data
 
     def __pad2: CArray[__u64, Nat._3] = io_uring_sqe._10
-  }
-
-  def io_uring_prep_shutdown(sqe: Ptr[io_uring_sqe], fd: CInt, how: CInt): Unit =
-    io_uring_prep_rw(IORING_OP_SHUTDOWN, sqe, fd, null, how.toUInt, 0.toULong)
-
-  def io_uring_prep_socket(
-      sqe: Ptr[io_uring_sqe],
-      domain: CInt,
-      `type`: CInt,
-      protocol: CInt,
-      flags: CUnsignedInt
-  ): Unit = {
-    io_uring_prep_rw(IORING_OP_SOCKET, sqe, domain, null, protocol.toUInt, `type`.toULong)
-    sqe.rw_flags = flags.toUInt
   }
 
   implicit final class io_uring_cqeOps(val io_uring_cqe: Ptr[io_uring_cqe]) extends AnyVal {

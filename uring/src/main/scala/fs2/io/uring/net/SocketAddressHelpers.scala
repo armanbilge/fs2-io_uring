@@ -41,8 +41,8 @@ private[net] object SocketAddressHelpers {
       .make(F.delay(new Array[Byte]((sizeof[socklen_t] + sizeof[sockaddr_in6]).toInt)))(_.pure.void)
       .evalMap { alloc =>
         F.delay {
-          val len = alloc.at(0).asInstanceOf[Ptr[socklen_t]]
-          val addr = alloc.at(sizeof[socklen_t].toInt).asInstanceOf[Ptr[sockaddr]]
+          val len = alloc.atUnsafe(0).asInstanceOf[Ptr[socklen_t]]
+          val addr = alloc.atUnsafe(sizeof[socklen_t].toInt).asInstanceOf[Ptr[sockaddr]]
           (addr, len)
         }
       }
