@@ -17,24 +17,12 @@
 package fs2.io.uring
 
 import cats.effect.IOApp
-import cats.effect.unsafe.IORuntime
-import fs2.io.uring.unsafe.UringRuntime
+import fs2.io.uring.unsafe.UringSystem
 
 trait UringApp extends IOApp {
-  override final lazy val runtime: IORuntime = {
-    val installed = UringRuntime.installGlobal {
-      UringRuntime(runtimeConfig)
-    }
 
-    if (!installed) {
-      System.err
-        .println(
-          "WARNING: Uring global runtime already initialized; custom configurations will be ignored"
-        )
-    }
+  override protected final def pollingSystem = UringSystem
 
-    UringRuntime.global
-  }
 }
 
 object UringApp {
