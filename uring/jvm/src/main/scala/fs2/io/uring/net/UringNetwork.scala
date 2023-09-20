@@ -39,18 +39,19 @@ import fs2.io.net.DatagramSocketOption
 import java.net.ProtocolFamily
 
 import java.util.concurrent.ThreadFactory
+import cats.MonadError
 
 private[net] final class UringNetwork[F[_]](
     sg: UringSocketGroup[F],
-    dsg: UringDatagramSocketGroup[F],
     val tlsContext: TLSContext.Builder[F]
-) extends Network.UnsealedNetwork[F] {
+)(implicit F: MonadError[F, Throwable])
+    extends Network.UnsealedNetwork[F] {
 
   def socketGroup(threadCount: Int, threadFactory: ThreadFactory): Resource[F, SocketGroup[F]] =
     Resource.pure[F, SocketGroup[F]](sg)
 
   def datagramSocketGroup(threadFactory: ThreadFactory): Resource[F, DatagramSocketGroup[F]] =
-    Resource.pure[F, DatagramSocketGroup[F]](dsg)
+    Resource.eval(F.raiseError(new NotImplementedError("This operation is not yet implemented")))
 
   def client(to: SocketAddress[Host], options: List[SocketOption]): Resource[F, Socket[F]] =
     sg.client(to, options)
@@ -74,14 +75,13 @@ private[net] final class UringNetwork[F[_]](
       options: List[DatagramSocketOption],
       protocolFamily: Option[ProtocolFamily]
   ): Resource[F, DatagramSocket[F]] =
-    dsg.openDatagramSocket(address, port, options, protocolFamily)
+    Resource.eval(F.raiseError(new NotImplementedError("This operation is not yet implemented")))
 }
 
 object UringNetwork {
   def apply[F[_]: Async: Dns: LiftIO]: Network[F] =
     new UringNetwork(
       new UringSocketGroup[F],
-      new UringDatagramSocketGroup[F],
       TLSContext.Builder.forAsync[F]
     )
 }
