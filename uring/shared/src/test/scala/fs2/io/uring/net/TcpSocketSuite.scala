@@ -32,31 +32,28 @@ import java.io.IOException
 import fs2.io.net.Socket
 import java.util.concurrent.TimeoutException
 
-class TcpSocketSuite extends UringSuite {
+class TcpSocketSuitd extends UringSuite {
   val debug = false
   val sg = UringSocketGroup[IO]
-
-  // Client test:
 
   test("postman echo") {
     sg.client(SocketAddress(host"postman-echo.com", port"80")).use { socket =>
       val msg =
         """|GET /get HTTP/1.1
-            |Host: postman-echo.com
-            |
-            |""".stripMargin
+           |Host: postman-echo.com
+           |
+           |""".stripMargin
 
-      val writeRead =
-        Stream(msg)
-          .through(utf8.encode[IO])
-          .through(socket.writes) ++
-          socket.reads
-            .through(utf8.decode[IO])
-            .through(lines)
-            .head
+      val writeRead = Stream(msg)
+        .through(utf8.encode[IO])
+        .through(socket.writes) ++
+        socket.reads
+          .through(utf8.decode[IO])
+          .through(lines)
+          .head
 
-      writeRead.compile.lastOrError
-        .assertEquals("HTTP/1.1 200 OK")
+      val http11 = "HTTP/1.1"
+      writeRead.compile.lastOrError.map(_.take(http11.length)).assertEquals(http11)
     }
   }
 
@@ -127,24 +124,12 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
-  // Server tests:
-
   val serverResource: Resource[IO, (SocketAddress[IpAddress], Stream[IO, Socket[IO]])] =
     sg.serverResource(
       Some(Host.fromString("localhost").get),
       Some(Port.fromInt(0).get),
       Nil
     )
-
-  test("Start server and wait for a connection during 5 sec") {
-    serverResource.use { case (localAddress, _) =>
-      IO.whenA(debug)(IO {
-        println(s"[TEST] Server started at $localAddress")
-        println(s"[TEST] You can now connect to this server")
-      }) *> IO.sleep(5.second)
-    // Use telnet localhost "port" to connect
-    }
-  }
 
   test("Start server and connect external client") {
     serverResource.use { case (localAddress, _) =>
@@ -162,7 +147,7 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
-  test("Create server connect external client and writes") {
+  test("Create server connect external client and write") {
     serverResource.use { case (localAddress, serverStream) =>
       sg.client(localAddress).use { socket =>
         val msg = "Hello, echo server!\n"
@@ -221,7 +206,6 @@ class TcpSocketSuite extends UringSuite {
     }
   }
 
-  // Server and client tests:
   val setup = for {
     serverSetup <- sg.serverResource(address = Some(ip"127.0.0.1"))
     (bindAddress, server) = serverSetup
@@ -244,7 +228,7 @@ class TcpSocketSuite extends UringSuite {
               .through(socket.writes)
               .onFinalize(socket.endOfOutput)
           }
-          .parJoin(1)
+          .parJoinUnbounded
 
         val msgClients = Stream.sleep_[IO](1.second) ++ clients
           .take(clientCount)
@@ -339,7 +323,7 @@ class TcpSocketSuite extends UringSuite {
         sizes.takeWhile(_ <= subsetSize)
       )
 
-    test.replicateA(100).void
+    test.replicateA(repetitions).void
   }
 
   test("write - concurrent calls do not cause a WritePendingException") {

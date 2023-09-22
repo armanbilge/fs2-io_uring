@@ -17,23 +17,14 @@
 package fs2.io.uring
 
 import munit.CatsEffectSuite
-// import cats.effect.unsafe.IORuntime
 import fs2.io.uring.unsafe.UringSystem
 import cats.effect.unsafe.IORuntimeBuilder
-import scala.concurrent.duration._
 
 abstract class UringSuite extends CatsEffectSuite {
-
-  // override lazy val munitIORuntime = {
-  //   val (pool, poller, shutdown) =
-  //     IORuntime.createWorkStealingComputeThreadPool(threads = 2, pollingSystem = UringSystem)
-  //   IORuntime.builder().setCompute(pool, shutdown).addPoller(poller, () => ()).build()
-  // }
 
   override lazy val munitIORuntime =
     IORuntimeBuilder()
       .setPollingSystem(UringSystem)
       .build()
 
-  override def munitIOTimeout: Duration = 20.second
 }

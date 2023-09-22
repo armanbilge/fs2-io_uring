@@ -53,7 +53,7 @@ ThisBuild / nativeConfig ~= { c =>
 lazy val root = tlCrossRootProject.aggregate(uring)
 
 lazy val uring = crossProject(NativePlatform, JVMPlatform)
-  .in(file("uring"))
+  .in(file("uring/shared"))
   .settings(
     name := "fs2-io_uring",
     libraryDependencies ++= Seq(
@@ -71,3 +71,5 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
     ),
     fork := true
   )
+  .jvmConfigure(_.in(file("uring/jvm")))
+  .nativeConfigure(_.in(file("uring/native")))
