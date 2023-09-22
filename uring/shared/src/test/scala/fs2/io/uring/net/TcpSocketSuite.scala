@@ -222,13 +222,11 @@ class TcpSocketSuitd extends UringSuite {
     val test: IO[Unit] = Stream
       .resource(setup)
       .flatMap { case (server, clients) =>
-        val echoServer = server
-          .map { socket =>
-            socket.reads
-              .through(socket.writes)
-              .onFinalize(socket.endOfOutput)
-          }
-          .parJoinUnbounded
+        val echoServer = server.map { socket =>
+          socket.reads
+            .through(socket.writes)
+            .onFinalize(socket.endOfOutput)
+        }.parJoinUnbounded
 
         val msgClients = Stream.sleep_[IO](1.second) ++ clients
           .take(clientCount)
