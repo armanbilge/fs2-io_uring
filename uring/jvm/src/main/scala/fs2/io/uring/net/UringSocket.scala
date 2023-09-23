@@ -31,10 +31,8 @@ import fs2.Stream
 import fs2.io.net.Socket
 
 import fs2.io.uring.Uring
-import fs2.io.uring.unsafe.util.createBuffer
 import fs2.io.uring.unsafe.util.OP._
 
-import io.netty.buffer.ByteBuf
 import io.netty.incubator.channel.uring.UringLinuxSocket
 import fs2.io.uring.unsafe.util.errno._
 
@@ -42,7 +40,8 @@ private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
     sockfd: Int,
     _remoteAddress: SocketAddress[IpAddress],
-    buffer: ByteBuf,
+    readBuffer: ResizableBuffer[F],
+    writeBuffer: ResizableBuffer[F],
     defaultReadSize: Int,
     readMutex: Mutex[F],
     writeMutex: Mutex[F]
@@ -59,13 +58,13 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
       for {
-        _ <- F.delay(buffer.clear()) // Clear the buffer before writing
+        buf <- readBuffer.get(maxBytes)
 
         _ <- F.whenA(debugRead)(
           F.delay(println(s"[SOCKET][READ] writing the received message in the buffer..."))
         )
 
-        readed <- recv(buffer.memoryAddress(), maxBytes, 0)
+        readed <- recv(buf.memoryAddress(), maxBytes, 0)
 
         _ <- F.whenA(debugRead)(
           F.delay(
@@ -75,7 +74,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
 
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
-          buffer.getBytes(0, arr)
+          buf.getBytes(0, arr)
           arr
         }
         _ <- F.whenA(debugRead)(F.delay(println(s"[SOCKET][READ] Done reading!")))
@@ -86,17 +85,17 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def readN(numBytes: Int): F[Chunk[Byte]] =
     readMutex.lock.surround {
       for {
-        _ <- F.delay(buffer.clear())
+        buf <- readBuffer.get(numBytes)
 
         readed <- recv(
-          buffer.memoryAddress(),
+          buf.memoryAddress(),
           numBytes,
           0
         )
 
         bytes <- F.delay {
           val arr = new Array[Byte](readed)
-          buffer.getBytes(0, arr)
+          buf.getBytes(0, arr)
           arr
         }
       } yield if (readed > 0) Chunk.array(bytes) else Chunk.empty
@@ -128,9 +127,10 @@ private[net] final class UringSocket[F[_]: LiftIO](
             F.delay(println(s"[SOCKET][WRITE] transfering to the buffer the bytes..."))
           )
 
+          buf <- writeBuffer.get(bytes.size)
+
           _ <- F.delay {
-            buffer.clear()
-            buffer.writeBytes(bytes.toArray)
+            buf.writeBytes(bytes.toArray)
           }
 
           _ <- F.whenA(debugWrite)(
@@ -138,7 +138,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
           )
 
           _ <- send(
-            buffer.memoryAddress(),
+            buf.memoryAddress(),
             bytes.size,
             0
           )
@@ -146,6 +146,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
           _ <- F.whenA(debugWrite)(F.delay(println(s"[SOCKET][WRITE] message sent!")))
 
         } yield ()
+
       }
       .unlessA(bytes.isEmpty)
 
@@ -163,14 +164,16 @@ private[net] object UringSocket {
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     for {
-      buffer <- createBuffer(defaultReadSize)
+      readBuffer <- ResizableBuffer(defaultReadSize)
+      writeBuffer <- ResizableBuffer(defaultReadSize)
       readMutex <- Resource.eval(Mutex[F])
       writeMutex <- Resource.eval(Mutex[F])
       socket = new UringSocket(
         ring,
         fd,
         remote,
-        buffer,
+        readBuffer,
+        writeBuffer,
         defaultReadSize,
         readMutex,
         writeMutex
