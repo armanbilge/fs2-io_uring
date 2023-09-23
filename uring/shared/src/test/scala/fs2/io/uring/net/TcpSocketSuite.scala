@@ -32,7 +32,7 @@ import java.io.IOException
 import fs2.io.net.Socket
 import java.util.concurrent.TimeoutException
 
-class TcpSocketSuitd extends UringSuite {
+class TcpSocketSuite extends UringSuite {
   val debug = false
   val sg = UringSocketGroup[IO]
 

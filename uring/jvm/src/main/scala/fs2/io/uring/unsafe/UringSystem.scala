@@ -191,7 +191,7 @@ object UringSystem extends PollingSystem {
                     )
                   )
                 }
-                .flatTap(e => F.raiseWhen(e < 0 && !mask(e))(IOExceptionHelper(-e)))
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
             }
           }
         }
