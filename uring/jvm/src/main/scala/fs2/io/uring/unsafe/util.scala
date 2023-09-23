@@ -84,7 +84,7 @@ private[uring] object util {
   }
 
   object errno {
-    val ENOTCONN = -107
+    final val ENOTCONN = 107
   }
 
 }
