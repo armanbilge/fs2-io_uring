@@ -58,7 +58,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
     isIpv6 = address.host.isInstanceOf[Ipv6Address]
 
-    linuxSocket <- openSocket(ring, isIpv6)
+    fd <- openSocket(ring, isIpv6)
+
+    // linuxSocket <- Resource.eval(F.delay(UringLinuxSocket(fd)))
 
     _ <- Resource.eval(
       createBufferAux(isIpv6).use { buf => // Write address in the buffer and call connect
@@ -69,7 +71,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
             F.delay(
               println(
                 s"[CLIENT] Connecting to address: ${address
-                    .toString()}, Buffer length: $length and LinuxSocket fd: ${linuxSocket.fd()}"
+                    .toString()}, Buffer length: $length and LinuxSocket fd: $fd"
               )
             )
           )
@@ -78,7 +80,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           _ <- ring
             .call(
               op = IORING_OP_CONNECT,
-              fd = linuxSocket.fd(),
+              fd = fd,
               bufferAddress = buf.memoryAddress(),
               offset = length.toLong
             )
@@ -87,7 +89,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       }
     )
 
-    socket <- UringSocket(ring, linuxSocket, linuxSocket.fd(), address)
+    socket <- UringSocket(ring, fd, address)
 
     _ <- Resource.eval(F.whenA(debugClient)(F.delay(println("[CLIENT] Connexion established!"))))
 
@@ -119,7 +121,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
         isIpv6 = resolvedAddress.isInstanceOf[Ipv6Address]
 
-        linuxSocket <- openSocket(ring, isIpv6)
+        fd <- openSocket(ring, isIpv6)
+
+        linuxSocket <- Resource.eval(F.delay(UringLinuxSocket(fd)))
 
         _ <- Resource.eval(
           F.whenA(debugServer)(F.delay(println(s"[SERVER] LinusSocketFd: ${linuxSocket.fd()}")))
@@ -158,7 +162,7 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                       clientFd <- ring
                         .bracket(
                           op = IORING_OP_ACCEPT,
-                          fd = linuxSocket.fd(),
+                          fd = fd,
                           bufferAddress = buf.memoryAddress(),
                           offset = bufLength.memoryAddress()
                         )(closeSocket(ring, _))
@@ -192,7 +196,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
                         )
                       socket <- UringSocket(
                         ring,
-                        UringLinuxSocket(clientFd),
                         clientFd,
                         remoteAddress
                       )
@@ -207,25 +210,19 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
       } yield (localAddress, sockets.unNone)
     }
 
-  private[this] def openSocket(
-      ring: Uring,
-      ipv6: Boolean
-  ): Resource[F, UringLinuxSocket] =
-    Resource.make[F, UringLinuxSocket](F.delay(UringLinuxSocket.newSocketStream(ipv6)))(
-      linuxSocket => closeSocket(ring, linuxSocket.fd()).to
-    )
-
-  // private[this] def uringOpenSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
-  //   val domain = if (ipv6) AF_INET6 else AF_INET
-  //   ring
-  //     .bracket(op = IORING_OP_SOCKET, fd = domain, length = 0, offset = SOCK_STREAM)(
-  //       closeSocket(ring, _)
-  //     )
-  //     .mapK(LiftIO.liftK)
-  // }
+  private[this] def openSocket(ring: Uring, ipv6: Boolean): Resource[F, Int] = {
+    val domain = if (ipv6) AF_INET6 else AF_INET
+    ring
+      .bracket(op = IORING_OP_SOCKET, fd = domain.toInt, length = 0, offset = SOCK_STREAM.toLong)(
+        closeSocket(ring, _)
+      )
+      .mapK(LiftIO.liftK)
+  }
 
   private[this] def closeSocket(ring: Uring, fd: Int): IO[Unit] =
-    ring.call(op = IORING_OP_CLOSE, fd = fd).void
+    IO.whenA(debug)(IO.println(s"The fd to close is: $fd")) *> ring
+      .call(op = IORING_OP_CLOSE, fd = fd)
+      .void
 
 }
 

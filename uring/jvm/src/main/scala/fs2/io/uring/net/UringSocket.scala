@@ -40,7 +40,6 @@ import fs2.io.uring.unsafe.util.errno._
 
 private[net] final class UringSocket[F[_]: LiftIO](
     ring: Uring,
-    linuxSocket: UringLinuxSocket,
     sockfd: Int,
     _remoteAddress: SocketAddress[IpAddress],
     buffer: ByteBuf,
@@ -116,7 +115,7 @@ private[net] final class UringSocket[F[_]: LiftIO](
   def remoteAddress: F[SocketAddress[IpAddress]] = F.pure(_remoteAddress)
 
   def localAddress: F[SocketAddress[IpAddress]] =
-    F.delay(SocketAddress.fromInetSocketAddress(linuxSocket.getLocalAddress()))
+    F.delay(SocketAddress.fromInetSocketAddress(UringLinuxSocket(sockfd).getLocalAddress()))
 
   private[this] def send(bufferAddress: Long, maxBytes: Int, flags: Int): F[Int] =
     ring.call(IORING_OP_SEND, flags, 0, sockfd, bufferAddress, maxBytes, 0).to
@@ -158,7 +157,6 @@ private[net] object UringSocket {
 
   def apply[F[_]: LiftIO](
       ring: Uring,
-      linuxSocket: UringLinuxSocket,
       fd: Int,
       remote: SocketAddress[IpAddress]
   )(implicit
@@ -170,7 +168,6 @@ private[net] object UringSocket {
       writeMutex <- Resource.eval(Mutex[F])
       socket = new UringSocket(
         ring,
-        linuxSocket,
         fd,
         remote,
         buffer,
