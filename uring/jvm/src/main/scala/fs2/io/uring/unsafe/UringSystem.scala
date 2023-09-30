@@ -61,7 +61,7 @@ object UringSystem extends PollingSystem {
   private val debugHandleCompletionQueue = debug && true
   type Api = Uring
 
-  override def makeApi(register: (Poller => Unit) => Unit): Api = new ApiImpl(register)
+  override def makeApi(access: (Poller => Unit) => Unit): Api = new ApiImpl(access)
 
   override def makePoller(): Poller =
     new Poller(UringRing())
