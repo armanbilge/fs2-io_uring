@@ -20,18 +20,31 @@ import cats.effect.IO
 import cats.effect.LiftIO
 import cats.effect.kernel.Resource
 import cats.syntax.all._
-import fs2.io.uring.unsafe.uring._
-
-import scala.scalanative.unsafe.Ptr
 
 abstract class Uring private[uring] {
   private[this] val noopMask: Int => Boolean = _ => false
 
-  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): IO[Int]
+  def call(
+      op: Byte,
+      flags: Int = 0,
+      rwFlags: Int = 0,
+      fd: Int = 0,
+      bufferAddress: Long = 0,
+      length: Int = 0,
+      offset: Long = 0,
+      mask: Int => Boolean = noopMask
+  ): IO[Int]
 
-  def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(
-      release: Int => IO[Unit]
-  ): Resource[IO, Int]
+  def bracket(
+      op: Byte,
+      flags: Int = 0,
+      rwFlags: Int = 0,
+      fd: Int = 0,
+      bufferAddress: Long = 0,
+      length: Int = 0,
+      offset: Long = 0,
+      mask: Int => Boolean = noopMask
+  )(release: Int => IO[Unit]): Resource[IO, Int]
 }
 
 object Uring {

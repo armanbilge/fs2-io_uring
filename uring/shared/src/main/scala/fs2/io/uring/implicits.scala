@@ -16,20 +16,13 @@
 
 package fs2.io.uring
 
-import java.io.IOException
-import java.net.ConnectException
-import java.net.BindException
+import cats.effect.LiftIO
+import cats.effect.kernel.Async
+import com.comcast.ip4s.Dns
+import fs2.io.net.Network
 
-private[uring] object IOExceptionHelper {
+object implicits {
 
-  def apply(errno: Int): IOException = errno match {
-    case 98 => // EADDRINUSE
-      new BindException("Address already in use")
-    case 99 => // EADDRNOTAVAIL
-      new BindException("Cannot assign requested address")
-    case 111 => // ECONNREFUSED
-      new ConnectException("Connection refused")
-    case _ => new IOException(errno.toString)
-  }
+  @inline implicit def network[F[_]: Async: Dns: LiftIO]: Network[F] = ???
 
 }
