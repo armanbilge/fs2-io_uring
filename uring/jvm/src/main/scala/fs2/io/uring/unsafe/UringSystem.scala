@@ -93,7 +93,7 @@ object UringSystem extends PollingSystem {
     ()
   }
 
-  private final class ApiImpl(register: (Poller => Unit) => Unit) extends Uring {
+  private final class ApiImpl(access: (Poller => Unit) => Unit) extends Uring {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
 
     def call(
@@ -138,7 +138,7 @@ object UringSystem extends PollingSystem {
           correctRing: Poller
       ): IO[Boolean] =
         IO.async_[Int] { cb =>
-          register { ring =>
+          access { ring =>
             val operationAddress = Encoder.encode(fd, op, id)
             if (debugCancel)
               println(
@@ -170,7 +170,7 @@ object UringSystem extends PollingSystem {
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
               val submit: IO[(Short, Poller)] = IO.async_[(Short, Poller)] { cb =>
-                register { ring =>
+                access { ring =>
                   val id = ring.getId(resume)
                   ring.enqueueSqe(op, flags, rwFlags, fd, bufferAddress, length, offset, id)
                   cb(Right((id, ring)))

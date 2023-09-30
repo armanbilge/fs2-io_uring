@@ -78,7 +78,7 @@ object UringSystem extends PollingSystem {
 
   def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
-  private final class ApiImpl(register: (Poller => Unit) => Unit)
+  private final class ApiImpl(access: (Poller => Unit) => Unit)
       extends Uring
       with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
@@ -101,7 +101,7 @@ object UringSystem extends PollingSystem {
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
               val submit = IO.async_[ULong] { cb =>
-                register { ring =>
+                access { ring =>
                   val sqe = ring.getSqe(resume)
                   prep(sqe)
                   cb(Right(sqe.user_data))
@@ -130,7 +130,7 @@ object UringSystem extends PollingSystem {
 
     private[this] def cancel(addr: __u64): IO[Boolean] =
       IO.async_[Int] { cb =>
-        register { ring =>
+        access { ring =>
           val sqe = ring.getSqe(cb)
           io_uring_prep_cancel64(sqe, addr, 0)
         }
