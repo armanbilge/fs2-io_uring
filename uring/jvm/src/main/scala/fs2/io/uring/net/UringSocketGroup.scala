@@ -60,8 +60,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
 
     fd <- openSocket(ring, isIpv6)
 
-    // linuxSocket <- Resource.eval(F.delay(UringLinuxSocket(fd)))
-
     _ <- Resource.eval(
       createBufferAux(isIpv6).use { buf => // Write address in the buffer and call connect
         for {
@@ -148,9 +146,9 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
           .resource(createBufferAux(isIpv6))
           .flatMap { buf => // Buffer that will contain the remote address
             Stream
-              .resource(createBuffer(4))
+              .resource(createBuffer(BUFFER_SIZE))
               .flatMap {
-                bufLength => // ACCEPT_OP needs a pointer to a buffer containing the size of the first buffer
+                bufLength => // IORING_OP_ACCEPT needs a pointer to a buffer containing the size of the first buffer
                   Stream.resource {
 
                     // Accept a connection, write the remote address on the buf and get the clientFd
@@ -223,7 +221,6 @@ private final class UringSocketGroup[F[_]: LiftIO](implicit F: Async[F], dns: Dn
     IO.whenA(debug)(IO.println(s"The fd to close is: $fd")) *> ring
       .call(op = IORING_OP_CLOSE, fd = fd)
       .void
-
 }
 
 object UringSocketGroup {

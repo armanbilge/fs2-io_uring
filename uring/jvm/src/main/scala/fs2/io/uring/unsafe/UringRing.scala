@@ -432,6 +432,8 @@ object NativeAccess {
 
   val POLLOUT = Native.POLLOUT
 
+  val BUFFER_SIZE = 4
+
   /** Creates a RingBuffer with the default size and IO sequence async threshold.
     * @return A new RingBuffer instance.
     */
