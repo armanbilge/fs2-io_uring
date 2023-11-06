@@ -31,7 +31,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
     name = Some("Wait for Cirrus CI")
   )
 
-val fs2Version = "3.9.2"
+val fs2Version = "3.9.3"
 val munitCEVersion = "2.0.0-M3"
 
 ThisBuild / nativeConfig ~= { c =>
