@@ -4,18 +4,17 @@ ThisBuild / organization := "com.armanbilge"
 ThisBuild / organizationName := "Arman Bilge"
 ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2022)
-ThisBuild / tlSonatypeUseLegacyHost := false
 
-ThisBuild / crossScalaVersions := Seq("3.3.0", "2.13.11")
+ThisBuild / crossScalaVersions := Seq("3.3.3", "2.13.14")
 
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 
 ThisBuild / githubWorkflowBuild ~= { steps =>
   steps.flatMap {
-    case step @ WorkflowStep.Sbt(List("Test/nativeLink"), _, _, _, _, _, _, _) =>
+    case step: WorkflowStep.Sbt if step.commands == List("Test/nativeLink") =>
       List(WorkflowStep.Sbt(List("compile"), name = Some("Compile")))
-    case step @ WorkflowStep.Sbt(List("test"), _, _, _, _, _, _, _) => Nil
-    case step                                                       => List(step)
+    case step: WorkflowStep.Sbt if step.commands == List("test") => Nil
+    case step                                                    => List(step)
   }
 }
 
@@ -32,8 +31,8 @@ ThisBuild / githubWorkflowPublishPreamble +=
   )
 
 val ceVersion = "3.6-e9aeb8c"
-val fs2Version = "3.9.1"
-val munitCEVersion = "2.0.0-M3"
+val fs2Version = "3.11.0"
+val munitCEVersion = "2.0.0"
 
 ThisBuild / nativeConfig ~= { c =>
   if (Option(System.getenv("CI")).contains("true"))
