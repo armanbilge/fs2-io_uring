@@ -14,7 +14,7 @@ ThisBuild / githubWorkflowBuild ~= { steps =>
     case step: WorkflowStep.Sbt if step.commands == List("Test/nativeLink") =>
       List(WorkflowStep.Sbt(List("compile"), name = Some("Compile")))
     case step: WorkflowStep.Sbt if step.commands == List("test") => Nil
-    case step                                                       => List(step)
+    case step                                                    => List(step)
   }
 }
 
