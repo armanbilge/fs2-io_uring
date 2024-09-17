@@ -16,14 +16,18 @@
 
 package fs2.io.uring
 
-import cats.effect.LiftIO
-import cats.effect.kernel.Async
-import com.comcast.ip4s.Dns
-import fs2.io.net.Network
-import fs2.io.uring.net.UringNetwork
+import cats.effect.IO
+import fs2.io.uring.unsafe.uringOps._
 
-object implicits {
+class UringSystemSuite extends UringSuite {
 
-  @inline implicit def network[F[_]: Async: Dns: LiftIO]: Network[F] = UringNetwork[F]
+  test("submission") {
+    Uring
+      .get[IO]
+      .flatMap { ring =>
+        ring.call(io_uring_prep_nop(_))
+      }
+      .assertEquals(0)
+  }
 
 }

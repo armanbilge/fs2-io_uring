@@ -19,6 +19,7 @@ package io
 package uring
 package net
 
+import cats.effect.LiftIO
 import cats.effect.kernel.Async
 import cats.effect.kernel.Resource
 import cats.effect.kernel.Sync
@@ -37,8 +38,8 @@ import scala.scalanative.posix.errno._
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
-private[net] final class UringSocket[F[_]](
-    ring: Uring[F],
+private[net] final class UringSocket[F[_]: LiftIO](
+    ring: Uring,
     fd: Int,
     _remoteAddress: SocketAddress[IpAddress],
     buffer: ResizableBuffer[F],
@@ -49,7 +50,7 @@ private[net] final class UringSocket[F[_]](
     extends Socket[F] {
 
   private[this] def recv(bytes: Ptr[Byte], maxBytes: Int, flags: Int): F[Int] =
-    ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags))
+    ring.call(io_uring_prep_recv(_, fd, bytes, maxBytes.toULong, flags)).to
 
   def read(maxBytes: Int): F[Option[Chunk[Byte]]] =
     readMutex.lock.surround {
@@ -69,9 +70,9 @@ private[net] final class UringSocket[F[_]](
 
   def reads: Stream[F, Byte] = Stream.repeatEval(read(defaultReadSize)).unNoneTerminate.unchunks
 
-  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0), _ == ENOTCONN).void
+  def endOfInput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 0), _ == ENOTCONN).void.to
 
-  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1), _ == ENOTCONN).void
+  def endOfOutput: F[Unit] = ring.call(io_uring_prep_shutdown(_, fd, 1), _ == ENOTCONN).void.to
 
   def isOpen: F[Boolean] = F.pure(true)
 
@@ -88,6 +89,7 @@ private[net] final class UringSocket[F[_]](
           .call(io_uring_prep_send(_, fd, ptr, slice.length.toULong, MSG_NOSIGNAL))
           .as(slice) // to keep in scope of gc
           .void
+          .to
       }
       .unlessA(bytes.isEmpty)
 
@@ -97,7 +99,7 @@ private[net] final class UringSocket[F[_]](
 
 private[net] object UringSocket {
 
-  def apply[F[_]](ring: Uring[F], fd: Int, remote: SocketAddress[IpAddress])(implicit
+  def apply[F[_]: LiftIO](ring: Uring, fd: Int, remote: SocketAddress[IpAddress])(implicit
       F: Async[F]
   ): Resource[F, UringSocket[F]] =
     ResizableBuffer(8192).evalMap { buf =>

@@ -16,77 +16,32 @@
 
 package fs2.io.uring
 
-import cats.effect.kernel.Async
-import cats.effect.kernel.Cont
-import cats.effect.kernel.MonadCancel
+import cats.effect.IO
+import cats.effect.LiftIO
 import cats.effect.kernel.Resource
 import cats.syntax.all._
-import cats.~>
-import fs2.io.uring.unsafe.UringExecutorScheduler
 import fs2.io.uring.unsafe.uring._
-import fs2.io.uring.unsafe.uringOps._
 
 import scala.scalanative.unsafe.Ptr
 
-private[uring] final class Uring[F[_]](ring: UringExecutorScheduler)(implicit F: Async[F]) {
+abstract class Uring private[uring] {
 
-  private[this] val noopRelease: Int => F[Unit] = _ => F.unit
   private[this] val noopMask: Int => Boolean = _ => false
 
-  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): F[Int] =
-    exec(prep, mask)(noopRelease)
+  def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask): IO[Int]
 
   def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean = noopMask)(
-      release: Int => F[Unit]
-  ): Resource[F, Int] =
-    Resource.makeFull[F, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
-
-  private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
-      release: Int => F[Unit]
-  ): F[Int] =
-    F.cont {
-      new Cont[F, Int, Int] {
-        def apply[G[_]](implicit
-            G: MonadCancel[G, Throwable]
-        ): (Either[Throwable, Int] => Unit, G[Int], F ~> G) => G[Int] = { (resume, get, lift) =>
-          G.uncancelable { poll =>
-            val submit = F.delay {
-              val sqe = ring.getSqe(resume)
-              prep(sqe)
-              sqe.user_data
-            }
-
-            lift(submit)
-              .flatMap { addr =>
-                G.onCancel(
-                  poll(get),
-                  lift(cancel(addr)).ifM(
-                    G.unit,
-                    // if cannot cancel, fallback to get
-                    get.flatMap { rtn =>
-                      if (rtn < 0 && !mask(-rtn)) G.raiseError(IOExceptionHelper(-rtn))
-                      else lift(release(rtn))
-                    }
-                  )
-                )
-              }
-              .flatTap(e => G.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
-          }
-        }
-      }
-    }
-
-  private[this] def cancel(addr: __u64): F[Boolean] =
-    F.async_[Int] { cb =>
-      val sqe = ring.getSqe(cb)
-      io_uring_prep_cancel64(sqe, addr, 0)
-    }.map(_ == 0) // true if we actually canceled
-
+      release: Int => IO[Unit]
+  ): Resource[IO, Int]
 }
 
-private[uring] object Uring {
-  def apply[F[_]](implicit F: Async[F]): F[Uring[F]] = F.executionContext.flatMap {
-    case ec: UringExecutorScheduler => F.pure(new Uring(ec))
-    case _ => F.raiseError(new RuntimeException("executionContext is not a UringExecutorScheduler"))
-  }
+object Uring {
+
+  def get[F[_]: LiftIO]: F[Uring] =
+    IO.pollers.flatMap {
+      _.collectFirst { case ring: Uring =>
+        ring
+      }.liftTo[IO](new RuntimeException("No UringSystem installed"))
+    }.to
+
 }
