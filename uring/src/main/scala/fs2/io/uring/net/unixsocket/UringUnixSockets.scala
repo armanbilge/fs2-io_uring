@@ -60,8 +60,8 @@ private[net] final class UringUnixSockets[F[_]: Files](implicit F: Async[F])
     Stream.eval(Uring[F]).flatMap { implicit ring =>
       for {
 
-        _ <- Stream.bracket(Files[F].deleteIfExists(Path(address.path)).whenA(deleteIfExists)) {
-          _ => Files[F].deleteIfExists(Path(address.path)).whenA(deleteOnClose)
+        _ <- Stream.bracket(Files[F].deleteIfExists(Path(address.path)).whenA(deleteIfExists)) { _ =>
+          Files[F].deleteIfExists(Path(address.path)).whenA(deleteOnClose)
         }
 
         fd <- Stream.resource(openSocket)
