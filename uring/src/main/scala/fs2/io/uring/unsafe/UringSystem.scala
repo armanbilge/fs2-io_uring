@@ -26,6 +26,9 @@ import cats.effect.kernel.MonadCancelThrow
 import cats.effect.kernel.Resource
 import cats.effect.std.Mutex
 import cats.effect.unsafe.PollingSystem
+import cats.effect.unsafe.PollingContext
+import cats.effect.unsafe.PollResult
+import cats.effect.unsafe.metrics.PollerMetrics
 import cats.syntax.all._
 
 import java.util.Collections
@@ -45,134 +48,23 @@ object UringSystem extends PollingSystem {
 
   type Api = Uring with FileDescriptorPoller
 
-  def close(): Unit = ()
+  override def close(): Unit = ???
 
-  def makeApi(register: (Poller => Unit) => Unit): Api =
-    new ApiImpl(register)
+  override def makeApi(ctx: PollingContext[Poller]): Api = ???
 
-  def makePoller(): Poller = {
-    val ring = util.malloc[io_uring]()
+  override def makePoller(): Poller = ???
 
-    val flags = IORING_SETUP_SUBMIT_ALL |
-      IORING_SETUP_COOP_TASKRUN |
-      IORING_SETUP_TASKRUN_FLAG |
-      IORING_SETUP_SINGLE_ISSUER |
-      IORING_SETUP_DEFER_TASKRUN
+  override def closePoller(poller: Poller): Unit = ???
 
-    // the submission queue size need not exceed 64
-    // every submission is accompanied by async suspension,
-    // and at most 64 suspensions can happen per iteration
-    val e = io_uring_queue_init(64.toUInt, ring, flags.toUInt)
-    if (e < 0) throw IOExceptionHelper(-e)
+  override def poll(poller: Poller, nanos: Long): PollResult = ???
 
-    new Poller(ring)
-  }
+  override def processReadyEvents(poller: Poller): Boolean = ???
 
-  def closePoller(poller: Poller): Unit =
-    poller.close()
+  override def needsPoll(poller: Poller): Boolean = ???
 
-  def poll(poller: Poller, nanos: Long, reportFailure: Throwable => Unit): Boolean =
-    poller.poll(nanos)
+  override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ???
 
-  def needsPoll(poller: Poller): Boolean = poller.needsPoll()
-
-  def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
-
-  private final class ApiImpl(register: (Poller => Unit) => Unit)
-      extends Uring
-      with FileDescriptorPoller {
-    private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
-
-    def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
-      exec(prep, mask)(noopRelease)
-
-    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
-        release: Int => IO[Unit]
-    ): Resource[IO, Int] =
-      Resource.makeFull[IO, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
-
-    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
-        release: Int => IO[Unit]
-    ): IO[Int] =
-      IO.cont {
-        new Cont[IO, Int, Int] {
-          def apply[F[_]](implicit
-              F: MonadCancelThrow[F]
-          ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
-            F.uncancelable { poll =>
-              val submit = IO.async_[ULong] { cb =>
-                register { ring =>
-                  val sqe = ring.getSqe(resume)
-                  prep(sqe)
-                  cb(Right(sqe.user_data))
-                }
-              }
-
-              lift(submit)
-                .flatMap { addr =>
-                  F.onCancel(
-                    poll(get),
-                    lift(cancel(addr)).ifM(
-                      F.unit,
-                      // if cannot cancel, fallback to get
-                      get.flatMap { rtn =>
-                        if (rtn < 0 && !mask(-rtn)) F.raiseError(IOExceptionHelper(-rtn))
-                        else lift(release(rtn))
-                      }
-                    )
-                  )
-                }
-                .flatTap(e => F.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
-            }
-          }
-        }
-      }
-
-    private[this] def cancel(addr: __u64): IO[Boolean] =
-      IO.async_[Int] { cb =>
-        register { ring =>
-          val sqe = ring.getSqe(cb)
-          io_uring_prep_cancel64(sqe, addr, 0)
-        }
-      }.map(_ == 0) // true if we actually canceled
-
-    def registerFileDescriptor(
-        fd: Int,
-        reads: Boolean,
-        writes: Boolean
-    ): Resource[IO, FileDescriptorPollHandle] =
-      Resource.eval {
-        (Mutex[IO], Mutex[IO]).mapN { (readMutex, writeMutex) =>
-          new FileDescriptorPollHandle {
-
-            def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              readMutex.lock.surround {
-                a.tailRecM { a =>
-                  f(a).flatTap { r =>
-                    if (r.isRight)
-                      IO.unit
-                    else
-                      call(io_uring_prep_poll_add(_, fd, POLLIN.toUInt))
-                  }
-                }
-              }
-
-            def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
-              writeMutex.lock.surround {
-                a.tailRecM { a =>
-                  f(a).flatTap { r =>
-                    if (r.isRight)
-                      IO.unit
-                    else
-                      call(io_uring_prep_poll_add(_, fd, POLLOUT.toUInt))
-                  }
-                }
-              }
-          }
-
-        }
-      }
-  }
+  override def metrics(poller: Poller): PollerMetrics = ???
 
   final class Poller private[UringSystem] (ring: Ptr[io_uring]) {
 
@@ -259,6 +151,5 @@ object UringSystem extends PollingSystem {
       filledCount > 0
     }
 
-  }
-
+  }  
 }
