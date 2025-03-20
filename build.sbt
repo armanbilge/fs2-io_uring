@@ -5,7 +5,7 @@ ThisBuild / organizationName := "Arman Bilge"
 ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2022)
 
-ThisBuild / crossScalaVersions := Seq("3.3.3", "2.13.14")
+ThisBuild / crossScalaVersions := Seq("3.3.3", "2.13.15")
 
 ThisBuild / githubWorkflowJavaVersions := Seq(JavaSpec.temurin("17"))
 
@@ -30,7 +30,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
     name = Some("Wait for Cirrus CI")
   )
 
-val ceVersion = "3.6-e9aeb8c"
+val ceVersion = "3.6.0-RC2"
 val fs2Version = "3.11.0"
 val munitCEVersion = "2.0.0"
 
