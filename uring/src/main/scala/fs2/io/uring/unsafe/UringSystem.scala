@@ -51,7 +51,7 @@ object UringSystem extends PollingSystem {
 
   override def close(): Unit = ()
 
-  override def makeApi(ctx: PollingContext[Poller]): Api = new ApiImpl(ctx)
+  override def makeApi(ctx: PollingContext[Poller]): Api = new ApiImpl(ctx.accessPoller)
 
   override def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
@@ -137,10 +137,10 @@ object UringSystem extends PollingSystem {
 
   }
 
-  private final class ApiImpl(ctx: PollingContext[Poller]) extends Uring with FileDescriptorPoller {
+  private final class ApiImpl(register: (Poller => Unit) => Unit)
+      extends Uring
+      with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
-
-    ctx
     def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
       exec(prep, mask)(noopRelease)
 
@@ -151,7 +151,40 @@ object UringSystem extends PollingSystem {
 
     private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
         release: Int => IO[Unit]
-    ): IO[Int] = ???
+    ): IO[Int] =
+      IO.cont {
+        new Cont[IO, Int, Int] {
+          def apply[F[_]](implicit
+              F: MonadCancelThrow[F]
+          ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
+            F.uncancelable { poll =>
+              val submit = IO.async_[ULong] { cb =>
+                register { ring =>
+                  val sqe = ring.getSqe(resume)
+                  prep(sqe)
+                  cb(Right(sqe.user_data))
+                }
+              }
+
+              lift(submit)
+                .flatMap { addr =>
+                  F.onCancel(
+                    poll(get),
+                    lift(cancel(addr)).ifM(
+                      F.unit,
+                      // if cannot cancel, fallback to get
+                      get.flatMap { rtn =>
+                        if (rtn < 0 && !mask(-rtn)) F.raiseError(IOExceptionHelper(-rtn))
+                        else lift(release(rtn))
+                      }
+                    )
+                  )
+                }
+                .flatTap(e => F.raiseWhen(e < 0 && !mask(-e))(IOExceptionHelper(-e)))
+            }
+          }
+        }
+      }
 
     private[this] def cancel(addr: __u64): IO[Boolean] =
       IO.async_[Int] { cb =>
