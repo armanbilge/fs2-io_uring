@@ -47,26 +47,160 @@ object UringSystem extends PollingSystem {
   private final val MaxEvents = 64
 
   type Api = Uring with FileDescriptorPoller
+  type Poller = PollerImpl
 
-  override def close(): Unit = ???
+  override def close(): Unit = ()
 
-  override def makeApi(ctx: PollingContext[Poller]): Api = ???
+  override def makeApi(ctx: PollingContext[Poller]): Api = new ApiImpl(ctx)
 
-  override def makePoller(): Poller = ???
+  override def makePoller(): Poller = {
+    val ring = util.malloc[io_uring]()
 
-  override def closePoller(poller: Poller): Unit = ???
+    val flags = IORING_SETUP_SUBMIT_ALL |
+      IORING_SETUP_COOP_TASKRUN |
+      IORING_SETUP_TASKRUN_FLAG |
+      IORING_SETUP_SINGLE_ISSUER |
+      IORING_SETUP_DEFER_TASKRUN
+
+    // the submission queue size need not exceed 64
+    // every submission is accompanied by async suspension,
+    // and at most 64 suspensions can happen per iteration
+    val e = io_uring_queue_init(64.toUInt, ring, flags.toUInt)
+    if (e < 0) throw IOExceptionHelper(-e)
+
+    new Poller(ring)
+  }
+
+  override def closePoller(poller: Poller): Unit = poller.close()
 
   override def poll(poller: Poller, nanos: Long): PollResult = ???
 
   override def processReadyEvents(poller: Poller): Boolean = ???
 
-  override def needsPoll(poller: Poller): Boolean = ???
+  override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
-  override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ???
+  override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
-  override def metrics(poller: Poller): PollerMetrics = ???
+  override def metrics(poller: Poller): PollerMetrics = new PollerMetricsImpl(poller)
 
-  final class Poller private[UringSystem] (ring: Ptr[io_uring]) {
+  private final class PollerMetricsImpl(poller: Poller) extends PollerMetrics {
+
+    override def operationsOutstandingCount(): Int = ???
+
+    override def totalOperationsSubmittedCount(): Long = ???
+
+    override def totalOperationsSucceededCount(): Long = ???
+
+    override def totalOperationsErroredCount(): Long = ???
+
+    override def totalOperationsCanceledCount(): Long = ???
+
+    override def acceptOperationsOutstandingCount(): Int = ???
+
+    override def totalAcceptOperationsSubmittedCount(): Long = ???
+
+    override def totalAcceptOperationsSucceededCount(): Long = ???
+
+    override def totalAcceptOperationsErroredCount(): Long = ???
+
+    override def totalAcceptOperationsCanceledCount(): Long = ???
+
+    override def connectOperationsOutstandingCount(): Int = ???
+
+    override def totalConnectOperationsSubmittedCount(): Long = ???
+
+    override def totalConnectOperationsSucceededCount(): Long = ???
+
+    override def totalConnectOperationsErroredCount(): Long = ???
+
+    override def totalConnectOperationsCanceledCount(): Long = ???
+
+    override def readOperationsOutstandingCount(): Int = ???
+
+    override def totalReadOperationsSubmittedCount(): Long = ???
+
+    override def totalReadOperationsSucceededCount(): Long = ???
+
+    override def totalReadOperationsErroredCount(): Long = ???
+
+    override def totalReadOperationsCanceledCount(): Long = ???
+
+    override def writeOperationsOutstandingCount(): Int = ???
+
+    override def totalWriteOperationsSubmittedCount(): Long = ???
+
+    override def totalWriteOperationsSucceededCount(): Long = ???
+
+    override def totalWriteOperationsErroredCount(): Long = ???
+
+    override def totalWriteOperationsCanceledCount(): Long = ???
+
+  }
+
+  private final class ApiImpl(ctx: PollingContext[Poller]) extends Uring with FileDescriptorPoller {
+    private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
+
+    ctx
+    def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
+      exec(prep, mask)(noopRelease)
+
+    def bracket(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): Resource[IO, Int] =
+      Resource.makeFull[IO, Int](poll => poll(exec(prep, mask)(release(_))))(release(_))
+
+    private def exec(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean)(
+        release: Int => IO[Unit]
+    ): IO[Int] = ???
+
+    private[this] def cancel(addr: __u64): IO[Boolean] =
+      IO.async_[Int] { cb =>
+        register { ring =>
+          val sqe = ring.getSqe(cb)
+          io_uring_prep_cancel64(sqe, addr, 0)
+        }
+      }.map(_ == 0) // true if we actually canceled
+
+    def registerFileDescriptor(
+        fileDescriptor: Int,
+        monitorReadReady: Boolean,
+        monitorWriteReady: Boolean
+    ): Resource[IO, FileDescriptorPollHandle] =
+      Resource.eval {
+        (Mutex[IO], Mutex[IO]).mapN { (readMutex, writeMutex) =>
+          new FileDescriptorPollHandle {
+
+            def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
+              readMutex.lock.surround {
+                a.tailRecM { a =>
+                  f(a).flatTap { r =>
+                    if (r.isRight)
+                      IO.unit
+                    else
+                      call(io_uring_prep_poll_add(_, fileDescriptor, POLLIN.toUInt))
+                  }
+                }
+              }
+
+            def pollWriteRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
+              writeMutex.lock.surround {
+                a.tailRecM { a =>
+                  f(a).flatTap { r =>
+                    if (r.isRight)
+                      IO.unit
+                    else
+                      call(io_uring_prep_poll_add(_, fileDescriptor, POLLOUT.toUInt))
+                  }
+                }
+              }
+          }
+
+        }
+      }
+
+  }
+
+  final class PollerImpl private[UringSystem] (ring: Ptr[io_uring]) {
 
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
@@ -151,5 +285,5 @@ object UringSystem extends PollingSystem {
       filledCount > 0
     }
 
-  }  
+  }
 }
