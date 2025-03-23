@@ -16,11 +16,23 @@
 
 package fs2.io.uring.unsafe
 
+import scala.scalanative.libc.errno._
 import scala.scalanative.libc.string._
+import scala.scalanative.libc.stdlib
 import scala.scalanative.unsafe._
 import scala.scalanative.unsigned._
 
 private[uring] object util {
+
+  def malloc[A: Tag](): Ptr[A] = {
+    val ptr = stdlib.malloc(sizeof[A]).asInstanceOf[Ptr[A]]
+    if (ptr eq null)
+      throw new RuntimeException(fromCString(strerror(errno)))
+    else ptr
+  }
+
+  def free[A](ptr: Ptr[A]): Unit =
+    stdlib.free(ptr.asInstanceOf[Ptr[Byte]])
 
   def toPtr(bytes: Array[Byte], ptr: Ptr[Byte]): Unit = {
     memcpy(ptr, bytes.atUnsafe(0), bytes.length.toUInt)

@@ -32,6 +32,7 @@ private[uring] object uring {
   final val IORING_SETUP_DEFER_TASKRUN = 1 << 13
 
   final val IORING_OP_NOP = 0
+  final val IORING_OP_POLL_ADD = 6
   final val IORING_OP_ACCEPT = 13
   final val IORING_OP_ASYNC_CANCEL = 14
   final val IORING_OP_CONNECT = 16
@@ -210,6 +211,15 @@ private[uring] object uringOps {
       addrlen: socklen_t
   ): Unit = io_uring_prep_rw(IORING_OP_CONNECT, sqe, fd, addr, 0.toUInt, addrlen)
 
+  def io_uring_prep_poll_add(
+      sqe: Ptr[io_uring_sqe],
+      fd: CInt,
+      poll_mask: CUnsignedInt
+  ): Unit = {
+    io_uring_prep_rw(IORING_OP_POLL_ADD, sqe, fd, null, 0.toUInt, 0.toULong)
+    sqe.poll32_events = poll_mask // TODO handle endianness
+  }
+
   def io_uring_prep_recv(
       sqe: Ptr[io_uring_sqe],
       sockfd: CInt,
@@ -276,6 +286,8 @@ private[uring] object uringOps {
 
     def rw_flags: __kernel_rwf_t = io_uring_sqe._8
     def rw_flags_=(rw_flags: __kernel_rwf_t): Unit = !io_uring_sqe.at8 = rw_flags
+    def poll32_events: __u32 = io_uring_sqe._8
+    def poll32_events_=(poll32_events: __u32): Unit = !io_uring_sqe.at8 = poll32_events
     def msg_flags: __u32 = io_uring_sqe._8
     def msg_flags_=(msg_flags: __u32): Unit = !io_uring_sqe.at8 = msg_flags
     def accept_flags: __u32 = io_uring_sqe._8
