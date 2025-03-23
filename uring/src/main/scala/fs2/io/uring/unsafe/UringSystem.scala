@@ -47,7 +47,6 @@ object UringSystem extends PollingSystem {
   private final val MaxEvents = 64
 
   type Api = Uring with FileDescriptorPoller
-  type Poller = PollerImpl
 
   override def close(): Unit = ()
 
@@ -81,7 +80,7 @@ object UringSystem extends PollingSystem {
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
-  override def metrics(poller: Poller): PollerMetrics = PollerMetrics.noop
+  override def metrics(poller: Poller): PollerMetrics = ???
 
   private final class ApiImpl(register: (Poller => Unit) => Unit)
       extends Uring
@@ -179,7 +178,7 @@ object UringSystem extends PollingSystem {
 
   }
 
-  final class PollerImpl private[UringSystem] (ring: Ptr[io_uring]) {
+  final class Poller private[UringSystem] (ring: Ptr[io_uring]) {
 
     private[this] var pendingSubmissions: Boolean = false
     private[this] val callbacks: Set[Either[Throwable, Int] => Unit] =
