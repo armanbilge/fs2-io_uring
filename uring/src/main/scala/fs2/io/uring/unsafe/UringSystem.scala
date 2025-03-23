@@ -73,69 +73,15 @@ object UringSystem extends PollingSystem {
 
   override def closePoller(poller: Poller): Unit = poller.close()
 
-  override def poll(poller: Poller, nanos: Long): PollResult = ???
+  override def poll(poller: Poller, nanos: Long): PollResult = poller.poll(nanos)
 
-  override def processReadyEvents(poller: Poller): Boolean = ???
+  override def processReadyEvents(poller: Poller): Boolean = poller.processReadyEvents()
 
   override def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
   override def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
 
-  override def metrics(poller: Poller): PollerMetrics = new PollerMetricsImpl(poller)
-
-  private final class PollerMetricsImpl(poller: Poller) extends PollerMetrics {
-
-    override def operationsOutstandingCount(): Int = ???
-
-    override def totalOperationsSubmittedCount(): Long = ???
-
-    override def totalOperationsSucceededCount(): Long = ???
-
-    override def totalOperationsErroredCount(): Long = ???
-
-    override def totalOperationsCanceledCount(): Long = ???
-
-    override def acceptOperationsOutstandingCount(): Int = ???
-
-    override def totalAcceptOperationsSubmittedCount(): Long = ???
-
-    override def totalAcceptOperationsSucceededCount(): Long = ???
-
-    override def totalAcceptOperationsErroredCount(): Long = ???
-
-    override def totalAcceptOperationsCanceledCount(): Long = ???
-
-    override def connectOperationsOutstandingCount(): Int = ???
-
-    override def totalConnectOperationsSubmittedCount(): Long = ???
-
-    override def totalConnectOperationsSucceededCount(): Long = ???
-
-    override def totalConnectOperationsErroredCount(): Long = ???
-
-    override def totalConnectOperationsCanceledCount(): Long = ???
-
-    override def readOperationsOutstandingCount(): Int = ???
-
-    override def totalReadOperationsSubmittedCount(): Long = ???
-
-    override def totalReadOperationsSucceededCount(): Long = ???
-
-    override def totalReadOperationsErroredCount(): Long = ???
-
-    override def totalReadOperationsCanceledCount(): Long = ???
-
-    override def writeOperationsOutstandingCount(): Int = ???
-
-    override def totalWriteOperationsSubmittedCount(): Long = ???
-
-    override def totalWriteOperationsSucceededCount(): Long = ???
-
-    override def totalWriteOperationsErroredCount(): Long = ???
-
-    override def totalWriteOperationsCanceledCount(): Long = ???
-
-  }
+  override def metrics(poller: Poller): PollerMetrics = PollerMetrics.noop
 
   private final class ApiImpl(register: (Poller => Unit) => Unit)
       extends Uring
@@ -255,7 +201,7 @@ object UringSystem extends PollingSystem {
     private[UringSystem] def needsPoll(): Boolean =
       pendingSubmissions || !callbacks.isEmpty()
 
-    private[UringSystem] def poll(nanos: Long): Boolean = {
+    private[UringSystem] def poll(nanos: Long): PollResult = {
 
       var rtn = if (nanos == 0) {
         if (pendingSubmissions)
@@ -281,20 +227,32 @@ object UringSystem extends PollingSystem {
         }
       }
 
-      val cqes = stackalloc[Ptr[io_uring_cqe]](MaxEvents.toLong)
-      val invokedCbs = processCqes(cqes)
+      if (rtn == -EINTR) {
+        PollResult.Interrupted
+      } else {
+        val cqes = stackalloc[Ptr[io_uring_cqe]](MaxEvents.toLong)
+        val invokedCbs = processCqes(cqes)
 
-      if (pendingSubmissions && rtn == -EBUSY) {
-        // submission failed, so try again
-        rtn = io_uring_submit(ring)
-        while (rtn == -EBUSY) {
-          processCqes(cqes)
+        if (pendingSubmissions && rtn == -EBUSY) {
+          // submission failed, so try again
           rtn = io_uring_submit(ring)
+          while (rtn == -EBUSY) {
+            processCqes(cqes)
+            rtn = io_uring_submit(ring)
+          }
         }
-      }
 
-      pendingSubmissions = false
-      invokedCbs
+        pendingSubmissions = false
+
+        if (invokedCbs) PollResult.Complete
+        else if (needsPoll()) PollResult.Incomplete
+        else PollResult.Interrupted
+      }
+    }
+
+    private[UringSystem] def processReadyEvents(): Boolean = {
+      val cqes = stackalloc[Ptr[io_uring_cqe]](MaxEvents.toLong)
+      processCqes(cqes)
     }
 
     private[this] def processCqes(_cqes: Ptr[Ptr[io_uring_cqe]]): Boolean = {
