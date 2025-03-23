@@ -50,7 +50,7 @@ object UringSystem extends PollingSystem {
 
   override def close(): Unit = ()
 
-  override def makeApi(ctx: PollingContext[Poller]): Api = new ApiImpl(ctx.accessPoller)
+  override def makeApi(ctx: PollingContext[Poller]): Api = new ApiImpl(ctx)
 
   override def makePoller(): Poller = {
     val ring = util.malloc[io_uring]()
@@ -82,9 +82,7 @@ object UringSystem extends PollingSystem {
 
   override def metrics(poller: Poller): PollerMetrics = ???
 
-  private final class ApiImpl(register: (Poller => Unit) => Unit)
-      extends Uring
-      with FileDescriptorPoller {
+  private final class ApiImpl(ctx: PollingContext[Poller]) extends Uring with FileDescriptorPoller {
     private[this] val noopRelease: Int => IO[Unit] = _ => IO.unit
     def call(prep: Ptr[io_uring_sqe] => Unit, mask: Int => Boolean): IO[Int] =
       exec(prep, mask)(noopRelease)
@@ -104,7 +102,7 @@ object UringSystem extends PollingSystem {
           ): (Either[Throwable, Int] => Unit, F[Int], IO ~> F) => F[Int] = { (resume, get, lift) =>
             F.uncancelable { poll =>
               val submit = IO.async_[ULong] { cb =>
-                register { ring =>
+                ctx.accessPoller { ring =>
                   val sqe = ring.getSqe(resume)
                   prep(sqe)
                   cb(Right(sqe.user_data))
@@ -133,7 +131,7 @@ object UringSystem extends PollingSystem {
 
     private[this] def cancel(addr: __u64): IO[Boolean] =
       IO.async_[Int] { cb =>
-        register { ring =>
+        ctx.accessPoller { ring =>
           val sqe = ring.getSqe(cb)
           io_uring_prep_cancel64(sqe, addr, 0)
         }
