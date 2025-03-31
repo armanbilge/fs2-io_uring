@@ -31,7 +31,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
   )
 
 val fs2Version = "3.11.0"
-val munitCEVersion = "2.0.0"
+val munitCEVersion = "2.1.0"
 
 ThisBuild / nativeConfig ~= { c =>
   if (Option(System.getenv("CI")).contains("true"))
