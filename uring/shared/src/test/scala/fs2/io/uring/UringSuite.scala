@@ -16,14 +16,15 @@
 
 package fs2.io.uring
 
-import cats.effect.LiftIO
-import cats.effect.kernel.Async
-import com.comcast.ip4s.Dns
-import fs2.io.net.Network
-import fs2.io.uring.net.UringNetwork
+import munit.CatsEffectSuite
+import fs2.io.uring.unsafe.UringSystem
+import cats.effect.unsafe.IORuntimeBuilder
 
-object implicits {
+abstract class UringSuite extends CatsEffectSuite {
 
-  @inline implicit def network[F[_]: Async: Dns: LiftIO]: Network[F] = UringNetwork[F]
+  override lazy val munitIORuntime =
+    IORuntimeBuilder()
+      .setPollingSystem(UringSystem)
+      .build()
 
 }

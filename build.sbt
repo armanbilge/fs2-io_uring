@@ -32,9 +32,15 @@ ThisBuild / githubWorkflowPublishPreamble +=
     name = Some("Wait for Cirrus CI")
   )
 
-val ceVersion = "3.6-e9aeb8c"
+val ceVersion = "3.6.0-RC2"
 val fs2Version = "3.8.0"
+val nettyVersion = "0.0.22.Final"
 val munitCEVersion = "2.0.0-M3"
+
+lazy val classifier = System.getProperty("os.arch") match {
+  case "amd64"   => "linux-x86_64"
+  case "aarch64" => "linux-aarch_64"
+}
 
 ThisBuild / nativeConfig ~= { c =>
   if (Option(System.getenv("CI")).contains("true"))
@@ -56,4 +62,12 @@ lazy val uring = crossProject(NativePlatform, JVMPlatform)
       "org.typelevel" %%% "munit-cats-effect" % munitCEVersion % Test
     ),
     Test / testOptions += Tests.Argument("+l")
+  )
+  .jvmSettings(
+    libraryDependencies ++= Seq(
+      "io.netty.incubator" % "netty-incubator-transport-classes-io_uring" % nettyVersion,
+      ("io.netty.incubator" % "netty-incubator-transport-native-io_uring" % nettyVersion % Test)
+        .classifier(classifier)
+    ),
+    fork := true
   )
